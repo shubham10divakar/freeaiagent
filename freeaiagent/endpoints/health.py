@@ -18,7 +18,17 @@ async def health():
             "default_model": model,
         }
     except RuntimeError as e:
-        return {"status": "degraded", "error": str(e)}
+        return {
+            "status": "degraded",
+            "error": str(e),
+            "setup": {
+                "ollama": "https://ollama.com — local, no key",
+                "groq": "https://console.groq.com — free API key, no credit card",
+                "gemini": "https://aistudio.google.com/apikey — free, 1500 req/day",
+                "openrouter": "https://openrouter.ai — free models available",
+                "docs": "Run `freeaiagent keys` for full setup commands",
+            },
+        }
 
 
 @api.get("/models")

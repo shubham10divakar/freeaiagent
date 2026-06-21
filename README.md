@@ -34,6 +34,78 @@ Requires Python 3.10+.
 
 ---
 
+## Free API Keys
+
+No budget needed. Every option below is free.
+
+### Ollama — local, no key, no internet
+Runs entirely on your machine. Best for privacy.
+
+1. Download from **[ollama.com](https://ollama.com)**
+2. Pull a model: `ollama pull llama3.2:3b`
+3. `freeaiagent start` — done.
+
+### Groq — fastest free cloud inference
+No credit card. ~1000 requests/day free.
+
+1. Sign up at **[console.groq.com](https://console.groq.com)** → API Keys → Create
+2. Wire it in:
+```bash
+freeaiagent config set backends.groq.api_key gsk_...
+freeaiagent config set default_backend groq
+freeaiagent config set default_model openai/gpt-oss-20b
+```
+
+### Google Gemini — 1500 free requests/day
+Works via the existing OpenAI-compatible backend (Google provides an OpenAI-compatible endpoint).
+
+1. Get a key at **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)** — free, no billing setup
+2. Wire it in:
+```bash
+freeaiagent config set backends.gemini.type openai_compat
+freeaiagent config set backends.gemini.base_url https://generativelanguage.googleapis.com/v1beta/openai
+freeaiagent config set backends.gemini.api_key AIza...
+freeaiagent config set default_backend gemini
+freeaiagent config set default_model gemini-2.0-flash
+```
+
+Free Gemini models: `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-flash-8b`
+
+### OpenRouter — 50+ providers, free models available
+Free credits on signup. Many models have a `:free` variant.
+
+1. Sign up at **[openrouter.ai](https://openrouter.ai)** → Keys → Create
+2. Wire it in:
+```bash
+freeaiagent config set backends.openrouter.type openai_compat
+freeaiagent config set backends.openrouter.base_url https://openrouter.ai/api
+freeaiagent config set backends.openrouter.api_key sk-or-...
+freeaiagent config set default_backend openrouter
+freeaiagent config set default_model meta-llama/llama-3.1-8b-instruct:free
+```
+
+Some free OpenRouter models: `meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`, `mistralai/mistral-7b-instruct:free`
+
+### LM Studio / Jan / LocalAI — local GUI apps, no key
+These run models locally and expose an OpenAI-compatible server.
+
+| App | Download | Default port |
+|---|---|---|
+| LM Studio | [lmstudio.ai](https://lmstudio.ai) | 1234 |
+| Jan | [jan.ai](https://jan.ai) | 1337 |
+| LocalAI | [localai.io](https://localai.io) | 8080 |
+
+```bash
+# Example: LM Studio running on default port
+freeaiagent config set backends.lmstudio.type openai_compat
+freeaiagent config set backends.lmstudio.base_url http://localhost:1234
+freeaiagent config set default_backend lmstudio
+```
+
+> **No keys?** Run `freeaiagent keys` anytime to see this setup guide.
+
+---
+
 ## Quick start
 
 **1. Start the server**

@@ -16,6 +16,42 @@ config_app = typer.Typer(help="Read and update configuration.")
 app.add_typer(context_app, name="context")
 app.add_typer(config_app, name="config")
 
+_SETUP_GUIDE = """
+No LLM backend available. Get a free key or run locally:
+
+  Option 1 — Ollama  (local, no key, no internet)
+    Download:  https://ollama.com
+    Then:      ollama pull llama3.2:3b
+               freeaiagent start
+
+  Option 2 — Groq  (free API key, fastest inference)
+    Sign up:   https://console.groq.com  (no credit card)
+    Then:      freeaiagent config set backends.groq.api_key gsk_...
+               freeaiagent config set default_backend groq
+               freeaiagent config set default_model openai/gpt-oss-20b
+               freeaiagent start
+
+  Option 3 — Google Gemini  (free, 1500 requests/day)
+    Get key:   https://aistudio.google.com/apikey
+    Then:      freeaiagent config set backends.gemini.type openai_compat
+               freeaiagent config set backends.gemini.base_url https://generativelanguage.googleapis.com/v1beta/openai
+               freeaiagent config set backends.gemini.api_key AIza...
+               freeaiagent config set default_backend gemini
+               freeaiagent config set default_model gemini-2.0-flash
+               freeaiagent start
+
+  Option 4 — OpenRouter  (free models, 50+ providers)
+    Sign up:   https://openrouter.ai  (free credits on signup)
+    Then:      freeaiagent config set backends.openrouter.type openai_compat
+               freeaiagent config set backends.openrouter.base_url https://openrouter.ai/api
+               freeaiagent config set backends.openrouter.api_key sk-or-...
+               freeaiagent config set default_backend openrouter
+               freeaiagent config set default_model meta-llama/llama-3.1-8b-instruct:free
+               freeaiagent start
+
+Run 'freeaiagent keys' to see this guide anytime.
+"""
+
 
 def _base_url() -> str:
     return f"http://localhost:{load().get('port', 7731)}"
@@ -24,6 +60,11 @@ def _base_url() -> str:
 def _agent_post(path: str, payload: dict, timeout: float = 120.0) -> dict:
     try:
         r = httpx.post(f"{_base_url()}{path}", json=payload, timeout=timeout)
+        if r.status_code == 503:
+            detail = r.json().get("detail", "No backend available.")
+            typer.echo(f"Error:   {detail}", err=True)
+            typer.echo(_SETUP_GUIDE)
+            raise typer.Exit(1)
         r.raise_for_status()
         return r.json()
     except httpx.ConnectError:
@@ -137,6 +178,17 @@ def status():
         typer.echo(f"Model:   {data['default_model']}")
     else:
         typer.echo(f"Error:   {data.get('error', 'unknown')}", err=True)
+        typer.echo(_SETUP_GUIDE)
+
+
+# ---------------------------------------------------------------------------
+# keys
+# ---------------------------------------------------------------------------
+
+@app.command()
+def keys():
+    """Show where to get free API keys and how to configure each backend."""
+    typer.echo(_SETUP_GUIDE)
 
 
 # ---------------------------------------------------------------------------
