@@ -137,29 +137,58 @@ Out-of-order messages can confuse some models.
 
 ### Phase 2 — Named Sessions
 
-Each caller passes a `session_id`. Different apps maintain separate context threads.
+Each caller passes a `session_id`. Different apps and UI chats maintain separate context threads.
 
-**API change:**
-```json
-POST /chat
-{ "message": "...", "session_id": "magpie-project" }
+**API changes:**
+```
+POST /chat                        — add session_id field (defaults to "default")
+POST /task                        — add session_id field
+GET  /context?session=id          — messages for one session
+DELETE /context?session=id        — clear messages for one session
 
-POST /task
-{ "task": "...", "session_id": "my-script" }
-
-GET  /context?session=magpie-project
-DELETE /context?session=magpie-project
-GET  /sessions
+GET  /sessions                    — list all sessions with metadata
+POST /sessions                    — create named session explicitly
+PATCH /sessions/{id}              — rename a session
+DELETE /sessions/{id}             — delete session + all its messages
 ```
 
-**DB change:** Add `session_id TEXT NOT NULL DEFAULT 'default'` column to `messages`.
-All existing calls use `session_id = "default"` — fully backwards-compatible.
+**Session metadata (new `sessions` table):**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT PRIMARY KEY | UUID or user-supplied slug |
+| `title` | TEXT | Auto-set from first 60 chars of first message; user can rename |
+| `model` | TEXT | Last model used in this session |
+| `backend` | TEXT | Last backend used |
+| `created_at` | TEXT | ISO timestamp |
+| `last_updated` | TEXT | ISO timestamp, updated on every message |
+| `message_count` | INT | Denormalised count for fast listing |
+
+**`messages` table change:** Add `session_id TEXT NOT NULL DEFAULT 'default'`.
+All existing calls without a `session_id` field continue to use `"default"` — fully backwards-compatible.
+
+**`GET /sessions` response shape:**
+```json
+{
+  "sessions": [
+    {
+      "id": "abc123",
+      "title": "Explain the difference between...",
+      "model": "openai/gpt-oss-20b",
+      "backend": "groq",
+      "message_count": 14,
+      "last_updated": "2026-06-21T10:45:00Z"
+    }
+  ]
+}
+```
 
 **CLI:**
 ```bash
 freeaiagent chat --session magpie
 freeaiagent context show --session magpie
 freeaiagent context clear --session magpie
+freeaiagent sessions                        # list all sessions
 ```
 
 ---
@@ -297,15 +326,66 @@ POST /tools/register
 Agent decides when to call tools mid-conversation. Results injected as
 `{"role": "tool", ...}` messages before the final response.
 
-### Web UI
+### Chat Web UI
 
-Minimal UI served at `http://localhost:7731` — just a chat box, context
-viewer, and model switcher. No framework, plain HTML + JS. Optional, off
-by default.
+A simple ChatGPT-style interface served at `http://localhost:7731/ui`.
+No npm, no bundler, no framework — one HTML file with inline CSS + JS,
+served via FastAPI's `FileResponse`. Depends on Phase 2 (Named Sessions).
 
+**Start:**
 ```bash
-freeaiagent start --ui
+freeaiagent start          # server only (default)
+freeaiagent start --ui     # server + open browser to /ui
 ```
+
+**Layout:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ┌──────────────┐  ┌──────────────────────────────────┐ │
+│  │  + New Chat  │  │  Model: [openai/gpt-oss-20b ▾]   │ │
+│  ├──────────────┤  ├──────────────────────────────────┤ │
+│  │ Chat 1       │  │                                  │ │
+│  │ Chat 2       │  │   [assistant bubble]             │ │
+│  │ Chat 3  ···  │  │         [user bubble]            │ │
+│  │              │  │   [assistant bubble]             │ │
+│  │              │  │                                  │ │
+│  │              │  ├──────────────────────────────────┤ │
+│  │              │  │  [  Type a message...    ] [Send]│ │
+│  └──────────────┘  └──────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features (keep it simple):**
+- Left sidebar: list of sessions ordered by `last_updated` desc; click to switch
+- "New Chat" button: creates a new session, clears the right pane
+- Session title: auto-set from first user message (first 60 chars); click to rename inline
+- Model dropdown: populated by `GET /models`; stored per session, changeable mid-chat
+- Chat area: scrollable bubbles (user right, assistant left); timestamps on hover
+- Input: textarea (Enter to send, Shift+Enter for newline); disabled while waiting
+- Streaming: if backend supports it, tokens appear as they arrive (SSE); falls back to single response
+
+**What it does NOT do (keep scope tight):**
+- No auth, no multi-user
+- No file upload, no image support
+- No markdown rendering (plain text only in v1; can add later)
+- No export / share
+- No theme switcher
+
+**Implementation approach:**
+- `freeaiagent/ui/index.html` — single file, self-contained
+- FastAPI serves it: `@app.get("/ui") → FileResponse("freeaiagent/ui/index.html")`
+- All API calls are `fetch()` to the same origin (`localhost:7731`)
+- Session state held in `localStorage` (active session ID only); truth lives in SQLite
+- No cookies, no WebSockets (SSE or polling for streaming)
+
+**Session flow:**
+1. On load: `GET /sessions` → populate sidebar
+2. Click session: `GET /context?session=id` → render messages
+3. Send message: `POST /chat` with `{message, session_id, model}` → append bubble
+4. New chat: generate UUID client-side, use as `session_id` on first POST (session auto-created on first message)
+5. Rename: click title → inline edit → `PATCH /sessions/{id}`
+6. Delete: hover session → trash icon → `DELETE /sessions/{id}`
 
 ### PyPI Publish
 
