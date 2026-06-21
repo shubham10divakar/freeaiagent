@@ -223,6 +223,52 @@ UAC. User drops one file, freeaiagent handles the rest.
 
 ---
 
+## Ensemble Inference (Future)
+
+Send the same query to multiple models in parallel and pick the best response before returning it to the caller.
+
+### Motivation
+
+Individual models have blind spots — a small fast model may hallucinate where a larger one wouldn't, and vice versa. Running the same prompt across a family (e.g. llama-3.1-8b, llama-3.3-70b, llama-4-scout) and selecting the best output gives higher reliability without switching backends.
+
+### How it would work
+
+1. Caller opts in via request field: `"ensemble": true` (or `"ensemble": ["model-a", "model-b"]`)
+2. Router fans out the prompt to all models in parallel (`asyncio.gather`)
+3. A **judge step** picks the winner — options ranked by preference:
+   - **LLM-as-judge**: send all responses to a small fast model with prompt: *"Which of these answers is most accurate and complete? Reply with just the number."*
+   - **Longest non-repetitive**: heuristic fallback when no judge model is available
+   - **Majority vote**: for factual/short answers, pick the most common response
+4. Return the winning response; include `ensemble_votes` metadata in the response body so callers can inspect what each model said
+
+### Config
+
+```json
+{
+  "ensemble": {
+    "enabled": false,
+    "models": ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "openai/gpt-oss-20b"],
+    "judge": "openai/gpt-oss-20b",
+    "strategy": "llm_judge"
+  }
+}
+```
+
+### Trade-offs
+
+| Pro | Con |
+|---|---|
+| Higher answer quality | 2–3× latency (parallel, not serial) |
+| Catches per-model blind spots | 2–3× token usage / API quota |
+| Works across same backend or mixed | Judge model itself can be wrong |
+| Transparent — caller sees all outputs | Not useful for simple factual tasks |
+
+### When it matters
+
+Best for high-stakes one-shot tasks (code generation, summarization, analysis) where getting the answer right matters more than speed. Less useful for back-and-forth chat where context continuity matters more than any single response.
+
+---
+
 ## Phase 4 Features
 
 ### Streaming (`/chat/stream`)
