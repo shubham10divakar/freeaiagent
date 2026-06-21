@@ -114,12 +114,13 @@ def start(
 def chat(
     message: Optional[str] = typer.Argument(None, help="Message to send. Omit for interactive mode."),
     system: Optional[str] = typer.Option(None, "--system", "-s", help="Override system prompt."),
+    session: str = typer.Option("default", "--session", help="Session ID for conversation context."),
 ):
-    """Chat with the agent (context is preserved between calls)."""
+    """Chat with the agent (context is preserved per session)."""
     if message:
-        _do_chat(message, system)
+        _do_chat(message, system, session)
     else:
-        typer.echo("freeaiagent interactive chat — Ctrl+C or type 'exit' to quit\n")
+        typer.echo(f"freeaiagent chat — session: {session} — Ctrl+C or 'exit' to quit\n")
         while True:
             try:
                 msg = input("You: ").strip()
@@ -130,11 +131,11 @@ def chat(
                 continue
             if msg.lower() in ("exit", "quit", "q"):
                 break
-            _do_chat(msg, system)
+            _do_chat(msg, system, session)
 
 
-def _do_chat(message: str, system: Optional[str]):
-    payload: dict = {"message": message}
+def _do_chat(message: str, system: Optional[str], session: str = "default"):
+    payload: dict = {"message": message, "session_id": session}
     if system:
         payload["system"] = system
     data = _agent_post("/chat", payload)
@@ -182,6 +183,23 @@ def status():
 
 
 # ---------------------------------------------------------------------------
+# sessions
+# ---------------------------------------------------------------------------
+
+@app.command("sessions")
+def list_sessions():
+    """List all chat sessions."""
+    data = _agent_get("/sessions")
+    rows = data.get("sessions", [])
+    if not rows:
+        typer.echo("No sessions yet. Start one with: freeaiagent chat --session <name>")
+        return
+    for s in rows:
+        sid = s["id"][:8] + "…" if len(s["id"]) > 8 else s["id"]
+        typer.echo(f"  {sid}  {s['title']:<40}  {s['message_count']} msgs")
+
+
+# ---------------------------------------------------------------------------
 # keys
 # ---------------------------------------------------------------------------
 
@@ -211,27 +229,30 @@ def models():
 # ---------------------------------------------------------------------------
 
 @context_app.command("show")
-def context_show():
-    """Print the full conversation history."""
-    data = _agent_get("/context")
+def context_show(
+    session: str = typer.Option("default", "--session", help="Session ID."),
+):
+    """Print the conversation history for a session."""
+    data = _agent_get(f"/context?session={session}")
     if not data["messages"]:
-        typer.echo("No context yet.")
+        typer.echo(f"No context for session '{session}'.")
         return
     for m in data["messages"]:
         label = "You  " if m["role"] == "user" else "Agent"
         typer.echo(f"[{label}] {m['content']}\n")
-    typer.echo(f"Total: {data['total']} messages")
+    typer.echo(f"Total: {data['total']} messages  (session: {session})")
 
 
 @context_app.command("clear")
 def context_clear(
+    session: str = typer.Option("default", "--session", help="Session ID."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
 ):
-    """Clear the entire conversation history."""
+    """Clear conversation history for a session."""
     if not yes:
-        typer.confirm("Clear all context?", abort=True)
+        typer.confirm(f"Clear context for session '{session}'?", abort=True)
     try:
-        r = httpx.delete(f"{_base_url()}/context", timeout=5.0)
+        r = httpx.delete(f"{_base_url()}/context", params={"session": session}, timeout=5.0)
         r.raise_for_status()
         typer.echo(r.json()["message"])
     except httpx.ConnectError:

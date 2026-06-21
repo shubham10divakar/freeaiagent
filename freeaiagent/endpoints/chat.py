@@ -10,14 +10,15 @@ api = APIRouter(tags=["chat"])
 class ChatRequest(BaseModel):
     message: str
     system: Optional[str] = None
-    model: Optional[str] = None     # override model for this message only
-    backend: Optional[str] = None   # override backend for this message only
+    model: Optional[str] = None
+    backend: Optional[str] = None
+    session_id: str = "default"
 
 
 @api.post("/chat")
 async def chat(req: ChatRequest):
     """
-    Send a message. Conversation history is preserved across calls.
+    Send a message. Conversation history is preserved per session_id.
     Optionally override the model or backend for this single message.
     """
     cfg = load_config()
@@ -26,10 +27,10 @@ async def chat(req: ChatRequest):
     messages = []
     if req.system:
         messages.append({"role": "system", "content": req.system})
-    messages += context.as_llm_messages(max_messages=max_messages)
+    messages += context.as_llm_messages(session_id=req.session_id, max_messages=max_messages)
     messages.append({"role": "user", "content": req.message})
 
-    context.append("user", req.message)
+    context.append("user", req.message, session_id=req.session_id)
 
     try:
         backend, model = await router.resolve(
@@ -41,11 +42,17 @@ async def chat(req: ChatRequest):
 
     response = await backend.chat(messages, model)
 
-    context.append("assistant", response)
+    context.append(
+        "assistant", response,
+        session_id=req.session_id,
+        model=model,
+        backend=type(backend).__name__,
+    )
 
     return {
         "response": response,
         "model": model,
         "backend": type(backend).__name__,
-        "context_length": context.count(),
+        "session_id": req.session_id,
+        "context_length": context.count(session_id=req.session_id),
     }

@@ -46,6 +46,9 @@ freeaiagent = "freeaiagent.cli:app"
 where = ["."]
 include = ["freeaiagent*"]
 
+[tool.setuptools.package-data]
+freeaiagent = ["ui/*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
