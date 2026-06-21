@@ -63,3 +63,34 @@ def test_timestamp_is_present(isolated_db):
     msg = ctx.all_messages()[0]
     assert "timestamp" in msg
     assert msg["timestamp"]  # non-empty
+
+
+@pytest.mark.unit
+def test_as_llm_messages_unlimited_by_default(isolated_db):
+    for i in range(10):
+        ctx.append("user", f"msg {i}")
+    assert len(ctx.as_llm_messages()) == 10
+
+
+@pytest.mark.unit
+def test_as_llm_messages_sliding_window(isolated_db):
+    for i in range(10):
+        ctx.append("user", f"msg {i}")
+    result = ctx.as_llm_messages(max_messages=4)
+    assert len(result) == 4
+    assert result[0]["content"] == "msg 6"
+    assert result[-1]["content"] == "msg 9"
+
+
+@pytest.mark.unit
+def test_as_llm_messages_window_larger_than_history(isolated_db):
+    ctx.append("user", "only one")
+    result = ctx.as_llm_messages(max_messages=50)
+    assert len(result) == 1
+
+
+@pytest.mark.unit
+def test_as_llm_messages_zero_means_unlimited(isolated_db):
+    for i in range(30):
+        ctx.append("user", f"msg {i}")
+    assert len(ctx.as_llm_messages(max_messages=0)) == 30

@@ -9,9 +9,15 @@ DEFAULTS: dict = {
     "default_backend": "ollama",
     "default_model": "llama3.2:3b",
     "port": 7731,
+    "max_messages": 0,  # 0 = unlimited; set to e.g. 20 to keep last 20 messages
     "backends": {
-        "ollama": {"base_url": "http://localhost:11434"},
-        "groq": {"api_key": ""},
+        "ollama":    {"base_url": "http://localhost:11434"},
+        "groq":      {"api_key": ""},
+        # openai_compat examples (disabled by default — add base_url to activate):
+        # "lmstudio":  {"type": "openai_compat", "base_url": "http://localhost:1234"},
+        # "llamafile": {"type": "openai_compat", "base_url": "http://localhost:8080"},
+        # "localai":   {"type": "openai_compat", "base_url": "http://localhost:8080"},
+        # "jan":       {"type": "openai_compat", "base_url": "http://localhost:1337"},
     },
     "fallback_order": ["ollama", "groq"],
 }

@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from typing import Optional
 from .. import router as llm_router
 from ..config import load
 
@@ -21,6 +22,6 @@ async def health():
 
 
 @api.get("/models")
-async def models():
-    """List models available on the active backend."""
-    return {"models": await llm_router.available_models()}
+async def models(backend: Optional[str] = Query(None, description="Backend name to list models for. Defaults to active backend.")):
+    """List models available on the specified backend (or active backend if not specified)."""
+    return {"models": await llm_router.available_models(backend_name=backend)}

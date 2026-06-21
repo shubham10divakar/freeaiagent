@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from .. import router
@@ -26,6 +26,9 @@ async def run_task(req: TaskRequest):
         {"role": "system", "content": req.system or _DEFAULT_SYSTEM},
         {"role": "user", "content": content},
     ]
-    backend, model = await router.resolve(override_model=req.model)
+    try:
+        backend, model = await router.resolve(override_model=req.model)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     result = await backend.chat(messages, model)
     return {"result": result, "model": model}

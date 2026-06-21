@@ -32,10 +32,12 @@ def mock_backend():
 @pytest.fixture
 def patched_router(mock_backend, monkeypatch):
     """Patch router.resolve and router.available_models to use mock_backend."""
-    async def _resolve(override_model=None):
+    async def _resolve(override_model=None, override_backend=None):
+        if override_backend and override_backend != "ollama":
+            raise RuntimeError(f"Backend '{override_backend}' is not configured. Available: ['ollama']")
         return mock_backend, override_model or "llama3.2:3b"
 
-    async def _models():
+    async def _models(backend_name=None):
         return await mock_backend.available_models()
 
     monkeypatch.setattr("freeaiagent.router.resolve", _resolve)

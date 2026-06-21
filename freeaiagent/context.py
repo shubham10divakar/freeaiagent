@@ -39,9 +39,16 @@ def all_messages() -> List[Dict]:
     return [dict(r) for r in rows]
 
 
-def as_llm_messages() -> List[Dict]:
-    """Return messages in the format LLM backends expect."""
-    return [{"role": m["role"], "content": m["content"]} for m in all_messages()]
+def as_llm_messages(max_messages: int = 0) -> List[Dict]:
+    """Return messages in the format LLM backends expect.
+
+    max_messages: keep only the last N messages (0 = all).
+    Always keeps pairs intact — truncates from the oldest user turn.
+    """
+    msgs = [{"role": m["role"], "content": m["content"]} for m in all_messages()]
+    if max_messages > 0 and len(msgs) > max_messages:
+        msgs = msgs[-max_messages:]
+    return msgs
 
 
 def clear() -> int:

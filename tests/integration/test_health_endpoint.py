@@ -39,7 +39,7 @@ def test_models_returns_list(client):
 
 @pytest.mark.integration
 def test_models_empty_when_backend_down(isolated_config, isolated_db, monkeypatch):
-    async def _empty():
+    async def _empty(backend_name=None):
         return []
 
     monkeypatch.setattr("freeaiagent.router.available_models", _empty)

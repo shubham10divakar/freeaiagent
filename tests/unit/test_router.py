@@ -81,3 +81,67 @@ async def test_available_models_empty_when_backend_down(isolated_config, monkeyp
         lambda cfg: {"ollama": ollama},
     )
     assert await router_mod.available_models() == []
+
+
+@pytest.mark.unit
+async def test_resolve_backend_override(isolated_config, monkeypatch):
+    ollama = _make_backend(available=True)
+    groq = _make_backend(available=True)
+    monkeypatch.setattr(
+        "freeaiagent.router._build_backends",
+        lambda cfg: {"ollama": ollama, "groq": groq},
+    )
+    backend, _ = await router_mod.resolve(override_backend="groq")
+    assert backend is groq
+
+
+@pytest.mark.unit
+async def test_resolve_backend_override_unknown_raises(isolated_config, monkeypatch):
+    monkeypatch.setattr(
+        "freeaiagent.router._build_backends",
+        lambda cfg: {"ollama": _make_backend()},
+    )
+    with pytest.raises(RuntimeError, match="not configured"):
+        await router_mod.resolve(override_backend="nonexistent")
+
+
+@pytest.mark.unit
+async def test_resolve_backend_override_unavailable_raises(isolated_config, monkeypatch):
+    monkeypatch.setattr(
+        "freeaiagent.router._build_backends",
+        lambda cfg: {"lmstudio": _make_backend(available=False)},
+    )
+    with pytest.raises(RuntimeError, match="not reachable"):
+        await router_mod.resolve(override_backend="lmstudio")
+
+
+@pytest.mark.unit
+async def test_build_backends_openai_compat(isolated_config, monkeypatch):
+    from freeaiagent.backends.openai_compat import OpenAICompatibleBackend
+    config = {
+        "backends": {
+            "lmstudio": {
+                "type": "openai_compat",
+                "base_url": "http://localhost:1234",
+                "models": ["mistral-7b"],
+            }
+        }
+    }
+    backends = router_mod._build_backends(config)
+    assert "lmstudio" in backends
+    assert isinstance(backends["lmstudio"], OpenAICompatibleBackend)
+
+
+@pytest.mark.unit
+async def test_available_models_specific_backend(isolated_config, monkeypatch):
+    ollama = _make_backend(available=True)
+    ollama.available_models.return_value = ["llama3.2:3b"]
+    groq = _make_backend(available=True)
+    groq.available_models.return_value = ["llama-3.1-8b-instant"]
+
+    monkeypatch.setattr(
+        "freeaiagent.router._build_backends",
+        lambda cfg: {"ollama": ollama, "groq": groq},
+    )
+    models = await router_mod.available_models(backend_name="groq")
+    assert "llama-3.1-8b-instant" in models
