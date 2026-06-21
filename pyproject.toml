@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freeaiagent"
+version = "0.1.0"
+description = "Local AI agent service — HTTP endpoints, persistent context, multi-model LLM backend"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Subham", email = "shubham.divakar@gmail.com" }
+]
+keywords = ["llm", "agent", "ollama", "groq", "local", "ai", "fastapi"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "typer>=0.12.0",
+    "httpx2",
+]
+
+[project.optional-dependencies]
+groq = ["groq>=0.9.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx2",
+]
+all = ["groq>=0.9.0"]
+
+[project.scripts]
+freeaiagent = "freeaiagent.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["freeaiagent*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "smoke: real server + real LLM — requires Ollama running or GROQ_API_KEY set",
+    "unit: fast isolated tests with no I/O",
+    "integration: FastAPI TestClient with mocked backends",
+]
+addopts = "-v -m 'not smoke'"

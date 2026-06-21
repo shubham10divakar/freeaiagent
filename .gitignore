@@ -1,0 +1,32 @@
+# build artifacts
+dist/
+build/
+*.egg-info/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# env
+.env
+.venv
+venv/
+
+# local agent data (never commit user's LLM context or config)
+.freeaiagent/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
