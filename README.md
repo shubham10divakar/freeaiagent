@@ -1,5 +1,12 @@
 # freeaiagent
 
+[![PyPI Downloads](https://img.shields.io/pypi/dm/freeaiagent?style=flat-square&logo=pypi&label=Downloads&color=blue)](https://pypi.org/project/freeaiagent/)
+[![Total Downloads](https://pepy.tech/badge/freeaiagent)](https://pepy.tech/project/freeaiagent)
+[![PyPI Version](https://img.shields.io/pypi/v/freeaiagent?style=flat-square&logo=pypi&color=green)](https://pypi.org/project/freeaiagent/)
+[![Python](https://img.shields.io/pypi/pyversions/freeaiagent?style=flat-square&logo=python)](https://pypi.org/project/freeaiagent/)
+[![License](https://img.shields.io/github/license/shubham10divakar/freeaiagent?style=flat-square)](https://github.com/shubham10divakar/freeaiagent/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/shubham10divakar/freeaiagent?style=flat-square&logo=github)](https://github.com/shubham10divakar/freeaiagent)
+
 A local AI agent service you `pip install` once and call from anywhere.
 
 Runs as a persistent HTTP server on `localhost:7731`. Stores conversation history in SQLite. Any app — script, CLI tool, personal project — can delegate tasks to it with a single HTTP call, no LLM code required on the caller's side.
