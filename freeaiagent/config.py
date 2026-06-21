@@ -6,20 +6,21 @@ CONFIG_DIR = Path.home() / ".freeaiagent"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS: dict = {
-    "default_backend": "ollama",
-    "default_model": "llama3.2:3b",
+    "default_backend": "llamafile",
+    "default_model": "Llama-3.2-1B-Instruct",
     "port": 7731,
     "max_messages": 0,  # 0 = unlimited; set to e.g. 20 to keep last 20 messages
     "backends": {
+        # Zero-install local backend: downloads once (~1.4 GB), starts automatically.
+        "llamafile": {"type": "llamafile", "port": 8080},
+        # Ollama: install from https://ollama.com, then: ollama pull llama3.2:3b
         "ollama":    {"base_url": "http://localhost:11434"},
+        # Groq: free API key at https://console.groq.com
         "groq":      {"api_key": ""},
-        # openai_compat examples (disabled by default — add base_url to activate):
+        # Any OpenAI-compatible server (LM Studio, LocalAI, Gemini, OpenRouter, etc.)
         # "lmstudio":  {"type": "openai_compat", "base_url": "http://localhost:1234"},
-        # "llamafile": {"type": "openai_compat", "base_url": "http://localhost:8080"},
-        # "localai":   {"type": "openai_compat", "base_url": "http://localhost:8080"},
-        # "jan":       {"type": "openai_compat", "base_url": "http://localhost:1337"},
     },
-    "fallback_order": ["ollama", "groq"],
+    "fallback_order": ["llamafile", "ollama", "groq"],
 }
 
 

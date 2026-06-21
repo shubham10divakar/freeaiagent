@@ -7,8 +7,8 @@ def test_health_ok(client):
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "ok"
-    assert data["active_backend"] == "ollama"
-    assert data["default_model"] == "llama3.2:3b"
+    assert data["active_backend"] == "llamafile"
+    assert data["default_model"] == "Llama-3.2-1B-Instruct"
 
 
 @pytest.mark.integration

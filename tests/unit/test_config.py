@@ -6,7 +6,7 @@ import freeaiagent.config as cfg
 @pytest.mark.unit
 def test_load_creates_defaults_on_first_run(isolated_config):
     config = cfg.load()
-    assert config["default_backend"] == "ollama"
+    assert config["default_backend"] == "llamafile"
     assert config["port"] == 7731
     assert (isolated_config / "config.json").exists()
 
@@ -17,7 +17,7 @@ def test_load_merges_with_defaults(isolated_config):
     (isolated_config / "config.json").write_text(json.dumps({"port": 9999}))
     config = cfg.load()
     assert config["port"] == 9999
-    assert config["default_backend"] == "ollama"  # merged from defaults
+    assert config["default_backend"] == "llamafile"  # merged from defaults
 
 
 @pytest.mark.unit

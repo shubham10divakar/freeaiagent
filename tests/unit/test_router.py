@@ -13,14 +13,14 @@ def _make_backend(available: bool = True, response: str = "ok"):
 
 @pytest.mark.unit
 async def test_resolve_returns_default_backend(isolated_config, monkeypatch):
-    ollama = _make_backend(available=True)
+    llamafile = _make_backend(available=True)
     monkeypatch.setattr(
         "freeaiagent.router._build_backends",
-        lambda cfg: {"ollama": ollama},
+        lambda cfg: {"llamafile": llamafile},
     )
     backend, model = await router_mod.resolve()
-    assert backend is ollama
-    assert model == "llama3.2:3b"
+    assert backend is llamafile
+    assert model == "Llama-3.2-1B-Instruct"
 
 
 @pytest.mark.unit
@@ -62,14 +62,14 @@ async def test_resolve_uses_override_model(isolated_config, monkeypatch):
 
 @pytest.mark.unit
 async def test_available_models_delegates_to_active_backend(isolated_config, monkeypatch):
-    ollama = _make_backend(available=True)
-    ollama.available_models.return_value = ["llama3.2:3b", "phi3"]
+    llamafile = _make_backend(available=True)
+    llamafile.available_models.return_value = ["Llama-3.2-1B-Instruct", "phi3"]
     monkeypatch.setattr(
         "freeaiagent.router._build_backends",
-        lambda cfg: {"ollama": ollama},
+        lambda cfg: {"llamafile": llamafile},
     )
     models = await router_mod.available_models()
-    assert "llama3.2:3b" in models
+    assert "Llama-3.2-1B-Instruct" in models
     assert "phi3" in models
 
 

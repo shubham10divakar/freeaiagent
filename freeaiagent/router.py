@@ -1,6 +1,7 @@
 from typing import List, Tuple
 from .config import load
 from .backends.base import BaseBackend
+from .backends.llamafile import LlamafileBackend, DEFAULT_URL
 from .backends.ollama import OllamaBackend
 from .backends.groq import GroqBackend
 from .backends.openai_compat import OpenAICompatibleBackend
@@ -11,7 +12,14 @@ def _build_backends(config: dict) -> dict[str, BaseBackend]:
     for name, bcfg in config.get("backends", {}).items():
         btype = bcfg.get("type", name)  # default type = key name for ollama/groq
 
-        if btype == "ollama":
+        if btype == "llamafile":
+            backends[name] = LlamafileBackend(
+                port=bcfg.get("port", 8080),
+                download_url=bcfg.get("download_url", DEFAULT_URL),
+                auto_download=bcfg.get("auto_download", True),
+                auto_start=bcfg.get("auto_start", True),
+            )
+        elif btype == "ollama":
             backends[name] = OllamaBackend(
                 bcfg.get("base_url", "http://localhost:11434")
             )
@@ -65,7 +73,7 @@ async def resolve(
     tried = ", ".join(ordered)
     raise RuntimeError(
         f"No backend available (tried: {tried}). "
-        "Start Ollama, set a Groq API key, or configure an openai_compat backend."
+        "Run `freeaiagent keys` for setup options."
     )
 
 

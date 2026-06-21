@@ -35,7 +35,7 @@ def patched_router(mock_backend, monkeypatch):
     async def _resolve(override_model=None, override_backend=None):
         if override_backend and override_backend != "ollama":
             raise RuntimeError(f"Backend '{override_backend}' is not configured. Available: ['ollama']")
-        return mock_backend, override_model or "llama3.2:3b"
+        return mock_backend, override_model or "Llama-3.2-1B-Instruct"
 
     async def _models(backend_name=None):
         return await mock_backend.available_models()

@@ -8,7 +8,7 @@ def test_chat_returns_response(client):
     data = r.json()
     assert "response" in data
     assert data["response"] == "Hello from mock backend"
-    assert data["model"] == "llama3.2:3b"
+    assert data["model"] == "Llama-3.2-1B-Instruct"
     assert "backend" in data
     assert data["context_length"] == 2  # user + assistant appended
 
