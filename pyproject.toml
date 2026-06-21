@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "freeaiagent"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local AI agent service — HTTP endpoints, persistent context, multi-model LLM backend"
 readme = "README.md"
 license = "MIT"
