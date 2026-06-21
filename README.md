@@ -240,14 +240,19 @@ freeaiagent config set default_backend groq
 freeaiagent config set default_model llama-3.1-8b-instant
 ```
 
-Free-tier models available on Groq:
+Models are fetched live from the Groq API when your key is set — the list below is the fallback.
 
-| Model | Context |
-|---|---|
-| `llama-3.1-8b-instant` | 128k |
-| `llama-3.3-70b-versatile` | 128k |
-| `mixtral-8x7b-32768` | 32k |
-| `gemma2-9b-it` | 8k |
+| Model | Context | Notes |
+|---|---|---|
+| `openai/gpt-oss-20b` | 131k | Current production — replaces llama-3.1-8b |
+| `openai/gpt-oss-120b` | 131k | Current production — most capable |
+| `groq/compound` | 131k | Agentic system with web search + code execution |
+| `groq/compound-mini` | 131k | Lighter compound system |
+| `llama-3.1-8b-instant` | 131k | Deprecated Aug 16 2026 |
+| `llama-3.3-70b-versatile` | 131k | Deprecated Aug 16 2026 |
+| `qwen/qwen3.6-27b` | 131k | Preview |
+| `qwen/qwen3-32b` | 131k | Preview — deprecated Jul 17 2026 |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | 131k | Preview — deprecated Jul 17 2026 |
 
 ### Automatic fallback
 If the default backend is unreachable, `freeaiagent` tries the next one in `fallback_order` automatically. No configuration needed for this to work — just have both set up.
