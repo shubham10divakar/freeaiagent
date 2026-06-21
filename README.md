@@ -138,6 +138,39 @@ No pip dependencies needed in the calling app. Pure stdlib.
 
 ---
 
+## Chat UI
+
+A browser-based chat interface — similar to ChatGPT, no signup, runs entirely on your machine.
+
+**Open it:**
+```bash
+freeaiagent start   # then visit http://localhost:7731/ui
+```
+
+```
+┌──────────────┬──────────────────────────────────────────────┐
+│ + New Chat   │  Model: [openai/gpt-oss-20b ▾]               │
+├──────────────┤──────────────────────────────────────────────┤
+│ Chat 1       │                                              │
+│ Chat 2       │    [assistant response]                      │
+│ Chat 3  ···  │             [your message]                   │
+│              │    [assistant response]                      │
+│              ├──────────────────────────────────────────────┤
+│              │  [ Type a message…                  ] [↑]   │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+- **Sessions sidebar** — all your chats, ordered by most recent. Click to switch.
+- **New Chat** — starts a fresh session instantly, no naming required.
+- **Model picker** — dropdown populated live from your configured backends. Change mid-chat.
+- **Rename** — double-click any session title to edit it inline.
+- **Delete** — hover a session and click `×`.
+- **Keyboard** — Enter to send, Shift+Enter for a newline.
+
+Sessions and history are stored in `~/.freeaiagent/context.db` and persist across restarts.
+
+---
+
 ## CLI
 
 ```bash
@@ -145,8 +178,12 @@ freeaiagent start                          # start server (default port 7731)
 freeaiagent start --port 8080              # custom port
 freeaiagent start --reload                 # dev mode: auto-reload on code change
 
-freeaiagent chat                           # interactive chat (context preserved)
+freeaiagent chat                           # interactive chat (default session)
 freeaiagent chat "quick one-liner"         # single message, then exit
+freeaiagent chat --session work            # chat in a named session
+freeaiagent chat --session work "hi"       # single message to named session
+
+freeaiagent sessions                       # list all sessions
 
 freeaiagent task "explain this" \
   --input "$(cat file.py)"                 # one-shot task, no context read/written
@@ -156,9 +193,12 @@ freeaiagent task "translate to French" \
 
 freeaiagent status                         # health check + active backend/model
 freeaiagent models                         # list models on active backend
+freeaiagent keys                           # show where to get free API keys
 
-freeaiagent context show                   # print conversation history
-freeaiagent context clear                  # wipe conversation history
+freeaiagent context show                   # print conversation history (default session)
+freeaiagent context show --session work    # print history for a named session
+freeaiagent context clear                  # wipe default session
+freeaiagent context clear --session work   # wipe a named session
 
 freeaiagent config show                    # print current config
 freeaiagent config set default_model mistral:7b
@@ -173,18 +213,19 @@ freeaiagent config set backends.groq.api_key gsk_...
 All endpoints accept and return JSON.
 
 ### `POST /chat`
-Send a message. Conversation history is read and updated automatically.
+Send a message. Conversation history is read and updated automatically per session.
 
 ```bash
 curl -X POST http://localhost:7731/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "what did I just ask you?"}'
+  -d '{"message": "what did I just ask you?", "session_id": "work"}'
 ```
 
 ```json
 {
   "response": "You asked me what you just asked me.",
   "model": "llama3.2:3b",
+  "session_id": "work",
   "context_length": 4
 }
 ```
@@ -192,7 +233,10 @@ curl -X POST http://localhost:7731/chat \
 | Field | Type | Description |
 |---|---|---|
 | `message` | string | required |
-| `system` | string | optional system prompt override |
+| `session_id` | string | session to read/write context for (default: `"default"`) |
+| `system` | string | optional system prompt override for this message |
+| `model` | string | optional model override for this message |
+| `backend` | string | optional backend override for this message |
 
 ---
 
@@ -221,8 +265,8 @@ curl -X POST http://localhost:7731/task \
 
 ---
 
-### `GET /context`
-Returns the full conversation history.
+### `GET /context?session=default`
+Returns the conversation history for a session.
 
 ```json
 {
@@ -230,16 +274,47 @@ Returns the full conversation history.
     {"role": "user", "content": "hello", "timestamp": "2026-06-21T10:00:00+00:00"},
     {"role": "assistant", "content": "hi there", "timestamp": "2026-06-21T10:00:01+00:00"}
   ],
-  "total": 2
+  "total": 2,
+  "session_id": "default"
 }
 ```
 
-### `DELETE /context`
-Clears all conversation history.
+### `DELETE /context?session=default`
+Clears conversation history for a session.
 
 ```json
-{"cleared": 4, "message": "Cleared 4 messages."}
+{"cleared": 4, "message": "Cleared 4 messages.", "session_id": "default"}
 ```
+
+### `GET /sessions`
+Lists all sessions ordered by most recent activity.
+
+```json
+{
+  "sessions": [
+    {
+      "id": "work",
+      "title": "Explain the difference between...",
+      "model": "openai/gpt-oss-20b",
+      "message_count": 14,
+      "last_updated": "2026-06-21T10:45:00Z"
+    }
+  ]
+}
+```
+
+### `POST /sessions`
+Create a session explicitly (also auto-created on first `/chat` message).
+
+```json
+{"id": "my-project", "title": "My Project"}
+```
+
+### `PATCH /sessions/{id}`
+Rename a session: `{"title": "New name"}`
+
+### `DELETE /sessions/{id}`
+Delete a session and all its messages.
 
 ### `GET /health`
 ```json
@@ -380,33 +455,37 @@ const { response } = await res.json();
 
 ## Context storage
 
-Conversation history is stored in `~/.freeaiagent/context.db` (SQLite). It persists across server restarts. Clear it any time:
+Conversation history is stored in `~/.freeaiagent/context.db` (SQLite). It persists across server restarts.
+
+Each session has its own history. Clear a session any time:
 
 ```bash
-freeaiagent context clear
-# or
-curl -X DELETE http://localhost:7731/context
+freeaiagent context clear                  # clear the default session
+freeaiagent context clear --session work   # clear a named session
+# or via HTTP:
+curl -X DELETE "http://localhost:7731/context?session=work"
+curl -X DELETE "http://localhost:7731/sessions/work"  # also deletes session record
 ```
 
 ---
 
 ## Roadmap
 
-**Phase 2 — Named sessions**
-Multiple apps keep separate conversation histories via a `session_id` field.
-```json
-{"message": "hello", "session_id": "my-project"}
-```
+**Done**
+- Ollama, Groq, OpenAI-compatible backends (LM Studio, Gemini, OpenRouter, Jan, LocalAI, llamafile)
+- Per-call model and backend overrides
+- Sliding window context (`max_messages` config)
+- Session-based context windows (`session_id` on all endpoints)
+- Chat web UI at `localhost:7731/ui`
 
 **Phase 3 — Auto caller detection**
 Sessions created automatically per caller using `X-Caller-ID` header or caller port. Zero config for multi-app setups.
 
-**Phase 4 — More backends and features**
-- llamafile (single-file model, no Ollama install needed)
-- Together AI, OpenRouter
+**Phase 4 — More features**
+- llamafile dedicated backend (auto-start the `.exe`, no Ollama install)
 - Streaming responses (`/chat/stream` SSE)
+- Ensemble inference (fan out same query to multiple models, pick the best output)
 - Tool use / function calling
-- Minimal web UI at `localhost:7731`
 
 ---
 
