@@ -11,7 +11,12 @@ A local AI agent service you `pip install` once and call from anywhere.
 
 Runs as a persistent HTTP server on `localhost:7731`. Stores conversation history in SQLite. Any app — script, CLI tool, personal project — can delegate tasks to it with a single HTTP call, no LLM code required on the caller's side.
 
-Built on free LLM backends: **Ollama** (local, no API key) and **Groq** (free-tier cloud).
+Built on free LLM backends:
+- **Local, zero-install** — a self-contained model the agent downloads and runs for you (no Ollama, no keys). Larger models (7B–14B) run via an auto-downloaded engine.
+- **Ollama** — local, no key, if you already use it.
+- **Free cloud tiers** — Groq, Google Gemini, OpenRouter, Together, Cerebras (bring a free API key).
+
+Plus **streaming**, **tool/function calling**, and **per-app sessions** out of the box.
 
 ---
 
@@ -26,24 +31,43 @@ Embedding LLM logic directly into every app that needs it means duplicating prom
 ## Install
 
 ```bash
-pip install freeaiagent          # Ollama only
-pip install "freeaiagent[groq]"  # + Groq support
+pip install freeaiagent
 ```
 
-Requires Python 3.10+.
+Requires Python 3.10+. That's everything — local models and all cloud presets work with no extra packages. Then either pull a local model or add a free key (below).
+
+```bash
+freeaiagent pull     # one-time local model download (~2.3 GB), then fully offline
+freeaiagent start
+```
 
 ---
 
-## Free API Keys
+## Backends & free keys
 
 No budget needed. Every option below is free.
 
+### Local model — zero install, no key, fully offline (default)
+A self-contained model the agent downloads and runs for you. No Ollama, no service.
+
+```bash
+freeaiagent pull       # one-time ~2.3 GB download (Llama-3.2-3B), with a progress bar
+freeaiagent start      # auto-starts the model on first request
+```
+
+Pick a different size or browse the catalog:
+```bash
+freeaiagent models --available     # see all local models (1B → 14B)
+freeaiagent pull qwen2.5-7b        # a stronger model (also fetches a one-time engine)
+freeaiagent config set default_model qwen2.5-7b
+```
+
 ### Ollama — local, no key, no internet
-Runs entirely on your machine. Best for privacy.
+Runs entirely on your machine. Best if you already use Ollama.
 
 1. Download from **[ollama.com](https://ollama.com)**
 2. Pull a model: `ollama pull llama3.2:3b`
-3. `freeaiagent start` — done.
+3. `freeaiagent config set default_backend ollama && freeaiagent start`
 
 ### Groq — fastest free cloud inference
 No credit card. ~1000 requests/day free.
@@ -56,35 +80,37 @@ freeaiagent config set default_backend groq
 freeaiagent config set default_model openai/gpt-oss-20b
 ```
 
-### Google Gemini — 1500 free requests/day
-Works via the existing OpenAI-compatible backend (Google provides an OpenAI-compatible endpoint).
+### Cloud presets — Gemini, OpenRouter, Together, Cerebras
+These are **built in** as presets. Just add a key, pick the backend, pick a model — no `base_url`/`type` wiring needed.
 
-1. Get a key at **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)** — free, no billing setup
-2. Wire it in:
+**Google Gemini** — 1500 free requests/day. Key: **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)**
 ```bash
-freeaiagent config set backends.gemini.type openai_compat
-freeaiagent config set backends.gemini.base_url https://generativelanguage.googleapis.com/v1beta/openai
 freeaiagent config set backends.gemini.api_key AIza...
 freeaiagent config set default_backend gemini
 freeaiagent config set default_model gemini-2.0-flash
 ```
+Free models: `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-flash-8b`
 
-Free Gemini models: `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-flash-8b`
-
-### OpenRouter — 50+ providers, free models available
-Free credits on signup. Many models have a `:free` variant.
-
-1. Sign up at **[openrouter.ai](https://openrouter.ai)** → Keys → Create
-2. Wire it in:
+**OpenRouter** — many `:free` models. Key: **[openrouter.ai](https://openrouter.ai)**
 ```bash
-freeaiagent config set backends.openrouter.type openai_compat
-freeaiagent config set backends.openrouter.base_url https://openrouter.ai/api
 freeaiagent config set backends.openrouter.api_key sk-or-...
 freeaiagent config set default_backend openrouter
 freeaiagent config set default_model meta-llama/llama-3.1-8b-instruct:free
 ```
 
-Some free OpenRouter models: `meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`, `mistralai/mistral-7b-instruct:free`
+**Together AI** — free tier. Key: **[api.together.xyz](https://api.together.xyz)**
+```bash
+freeaiagent config set backends.together.api_key ...
+freeaiagent config set default_backend together
+freeaiagent config set default_model meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
+```
+
+**Cerebras** — free tier, very fast. Key: **[cloud.cerebras.ai](https://cloud.cerebras.ai)**
+```bash
+freeaiagent config set backends.cerebras.api_key csk-...
+freeaiagent config set default_backend cerebras
+freeaiagent config set default_model llama-3.3-70b
+```
 
 ### LM Studio / Jan / LocalAI — local GUI apps, no key
 These run models locally and expose an OpenAI-compatible server.
@@ -106,6 +132,47 @@ freeaiagent config set default_backend lmstudio
 
 ---
 
+## Local models
+
+The local backend is self-contained — no Ollama, no Python ML deps. It downloads
+a model and runs it as a local OpenAI-compatible server.
+
+```bash
+freeaiagent models --available    # browse the catalog
+```
+
+```
+ * llama-3.2-1b    1.3 GB  RAM>= 2GB  [low ] fused   Fastest. Classify / extract / tag.
+   gemma-2-2b      2.0 GB  RAM>= 4GB  [mid ] fused   Concise; strong at short summaries.
+   llama-3.2-3b    2.3 GB  RAM>= 4GB  [mid ] fused   Balanced default. Light reasoning / Q&A.
+   phi-3-mini      2.4 GB  RAM>= 4GB  [mid ] fused   Strong reasoning per byte.
+   qwen2.5-7b      4.7 GB  RAM>= 8GB  [high] engine  Strong reasoning, Q&A, summaries.
+   llama-3.1-8b    4.9 GB  RAM>= 8GB  [high] engine  Broad capability, 128k context.
+   qwen2.5-14b     9.0 GB  RAM>=16GB  [max ] engine  Strongest local option.
+```
+
+- **fused** models are a single self-contained file (kept under 4 GB so they run on Windows).
+- **engine** models are external GGUF weights run via a one-time ~305 MB llamafile engine — this is how 7B–14B models run anywhere, including Windows.
+
+```bash
+freeaiagent pull llama-3.2-3b          # a catalog model by name
+freeaiagent pull qwen2.5-7b            # also fetches the shared engine, once
+freeaiagent config set default_model qwen2.5-7b
+```
+
+### Any model from HuggingFace
+Search the whole Hub for GGUF models and pull any of them — no key for public repos.
+
+```bash
+freeaiagent search qwen2.5                         # find GGUF repos (most-downloaded first)
+freeaiagent search bartowski/Qwen2.5-7B-Instruct-GGUF   # list that repo's GGUF files + sizes
+freeaiagent pull hf:bartowski/Qwen2.5-7B-Instruct-GGUF/Qwen2.5-7B-Instruct-Q4_K_M.gguf
+```
+
+Models download to `~/.freeaiagent/models/`, the engine to `~/.freeaiagent/engine/`.
+
+---
+
 ## Quick start
 
 **1. Start the server**
@@ -119,7 +186,7 @@ freeaiagent start
 ```bash
 freeaiagent chat
 # You: what is the capital of France?
-# Agent [llama3.2:3b]: Paris.
+# Agent [llama-3.2-3b]: Paris.
 ```
 
 **3. Call it from any app**
@@ -192,8 +259,15 @@ freeaiagent task "translate to French" \
   --model mistral:7b                       # override model for this task
 
 freeaiagent status                         # health check + active backend/model
-freeaiagent models                         # list models on active backend
+freeaiagent models                         # list models on the active backend
+freeaiagent models --available             # browse the local model catalog
 freeaiagent keys                           # show where to get free API keys
+
+freeaiagent pull                           # download the default local model
+freeaiagent pull qwen2.5-7b                # download a catalog model by name
+freeaiagent pull hf:owner/repo/file.gguf   # download any GGUF from HuggingFace
+freeaiagent search qwen2.5                  # find GGUF models on HuggingFace
+freeaiagent search owner/repo              # list a repo's GGUF files
 
 freeaiagent context show                   # print conversation history (default session)
 freeaiagent context show --session work    # print history for a named session
@@ -237,6 +311,30 @@ curl -X POST http://localhost:7731/chat \
 | `system` | string | optional system prompt override for this message |
 | `model` | string | optional model override for this message |
 | `backend` | string | optional backend override for this message |
+| `tools` | bool | optional — let the model call registered tools (default `false`) |
+
+**Auto sessions:** if you don't pass `session_id`, the session is taken from the
+`X-Caller-ID` request header — so an app can set one header and get its own
+context thread automatically. Resolution order: body `session_id` → `X-Caller-ID` → `"default"`.
+
+---
+
+### `POST /chat/stream`
+Same as `/chat`, but streams the reply token-by-token as Server-Sent Events. The
+full response is persisted to the session when the stream finishes.
+
+```bash
+curl -N -X POST http://localhost:7731/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "write a haiku about the sea"}'
+```
+
+```
+data: {"token": "Waves"}
+data: {"token": " roll"}
+data: {"token": " in"}
+data: [DONE]
+```
 
 ---
 
@@ -327,6 +425,40 @@ Returns `"status": "degraded"` with an `"error"` field if no backend is reachabl
 {"models": ["llama3.2:3b", "mistral:7b", "phi3:mini"]}
 ```
 
+### Tools / function calling
+Register an HTTP tool once; the model may call it during a `/chat` with `tools: true`.
+When the model calls a tool, freeaiagent POSTs the arguments to your tool's
+`endpoint` and feeds the result back, looping until the model produces an answer.
+
+```bash
+# Register a tool
+curl -X POST http://localhost:7731/tools/register \
+  -H "Content-Type: application/json" \
+  -d '{
+        "name": "get_weather",
+        "description": "Get the current weather for a city",
+        "endpoint": "http://localhost:9000/weather",
+        "parameters": {"type": "object",
+                       "properties": {"city": {"type": "string"}},
+                       "required": ["city"]}
+      }'
+
+# Use it
+curl -X POST http://localhost:7731/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "what is the weather in Paris?", "tools": true}'
+```
+
+| Endpoint | Description |
+|---|---|
+| `POST /tools/register` | Register a tool (`name`, `description`, `endpoint`, optional `parameters`) |
+| `GET /tools` | List registered tools |
+| `DELETE /tools/{name}` | Unregister a tool |
+
+> Tool calling needs a backend/model that supports the OpenAI tool protocol
+> (Groq, most hosted providers, some local models). Backends without support
+> answer normally instead.
+
 ---
 
 ## Configuration
@@ -335,20 +467,28 @@ Config lives at `~/.freeaiagent/config.json` and is created on first run.
 
 ```json
 {
-  "default_backend": "ollama",
-  "default_model": "llama3.2:3b",
+  "default_backend": "llamafile",
+  "default_model": "llama-3.2-3b",
   "port": 7731,
+  "max_messages": 0,
   "backends": {
-    "ollama": {
-      "base_url": "http://localhost:11434"
-    },
-    "groq": {
-      "api_key": ""
-    }
+    "llamafile": {"type": "llamafile", "port": 8080, "auto_download": false},
+    "ollama":    {"base_url": "http://localhost:11434"},
+    "groq":      {"api_key": ""},
+    "together":   {"type": "openai_compat", "base_url": "https://api.together.xyz", "api_key": ""},
+    "openrouter": {"type": "openai_compat", "base_url": "https://openrouter.ai/api", "api_key": ""},
+    "cerebras":   {"type": "openai_compat", "base_url": "https://api.cerebras.ai", "api_key": ""},
+    "gemini":     {"type": "openai_compat",
+                   "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                   "api_prefix": "", "api_key": ""}
   },
-  "fallback_order": ["ollama", "groq"]
+  "fallback_order": ["llamafile", "ollama", "groq"]
 }
 ```
+
+Cloud presets are inert until you set their `api_key`. `default_model` for the
+local backend is a catalog name (`freeaiagent models --available`); legacy
+values are migrated automatically.
 
 Edit directly or use `freeaiagent config set <key> <value>` with dotted keys:
 
@@ -362,9 +502,19 @@ freeaiagent config set default_model llama-3.1-8b-instant
 
 ---
 
-## Backends
+## Backend reference
 
-### Ollama (default)
+### Local (llamafile) — default
+Self-contained. No Ollama, no key, no data leaves your machine. Downloads a model
+once and runs it locally. See **[Local models](#local-models)** for the catalog,
+GGUF/engine models, and HuggingFace search.
+
+```bash
+freeaiagent pull          # download the default local model
+freeaiagent start
+```
+
+### Ollama
 Runs locally. No API key. No data leaves your machine.
 
 ```bash
@@ -401,8 +551,15 @@ Models are fetched live from the Groq API when your key is set — the list belo
 | `qwen/qwen3-32b` | 131k | Preview — deprecated Jul 17 2026 |
 | `meta-llama/llama-4-scout-17b-16e-instruct` | 131k | Preview — deprecated Jul 17 2026 |
 
+### Cloud presets
+`together`, `openrouter`, `cerebras`, and `gemini` are built-in OpenAI-compatible
+presets — set an `api_key` and select the backend (see **[Cloud presets](#cloud-presets--gemini-openrouter-together-cerebras)**). Add any other OpenAI-compatible
+server (LM Studio, Jan, LocalAI) with `type: openai_compat` and a `base_url`.
+
 ### Automatic fallback
-If the default backend is unreachable, `freeaiagent` tries the next one in `fallback_order` automatically. No configuration needed for this to work — just have both set up.
+If the default backend is unreachable, `freeaiagent` tries the next one in
+`fallback_order` automatically (default: `llamafile` → `ollama` → `groq`). So if a
+cloud key is exhausted or you're offline, the local model still answers.
 
 ---
 
@@ -419,7 +576,10 @@ def ask(message):
     req = urllib.request.Request(
         "http://localhost:7731/chat",
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Caller-ID": "my-app",   # this app gets its own context thread
+        },
     )
     return json.loads(urllib.request.urlopen(req).read())["response"]
 
@@ -472,20 +632,20 @@ curl -X DELETE "http://localhost:7731/sessions/work"  # also deletes session rec
 ## Roadmap
 
 **Done**
-- Ollama, Groq, OpenAI-compatible backends (LM Studio, Gemini, OpenRouter, Jan, LocalAI, llamafile)
+- Zero-install local backend (llamafile) with a model catalog, engine mode for 7B–14B GGUF models, and HuggingFace search/pull
+- Ollama, Groq, and OpenAI-compatible cloud presets (Gemini, OpenRouter, Together, Cerebras; plus LM Studio, Jan, LocalAI)
 - Per-call model and backend overrides
-- Sliding window context (`max_messages` config)
-- Session-based context windows (`session_id` on all endpoints)
+- Sliding window context (`max_messages` config) + session-based context windows
+- Auto caller detection (`X-Caller-ID` header → per-app session)
+- Streaming responses (`/chat/stream` SSE)
+- Tool use / function calling (`/tools`, `tools=true`)
 - Chat web UI at `localhost:7731/ui`
 
-**Phase 3 — Auto caller detection**
-Sessions created automatically per caller using `X-Caller-ID` header or caller port. Zero config for multi-app setups.
-
-**Phase 4 — More features**
-- llamafile dedicated backend (auto-start the `.exe`, no Ollama install)
-- Streaming responses (`/chat/stream` SSE)
-- Ensemble inference (fan out same query to multiple models, pick the best output)
-- Tool use / function calling
+**Planned**
+- Ensemble inference (fan out the same query to multiple models, pick the best output)
+- Optional in-process engine (`llama-cpp-python`)
+- Download checksums, custom catalog entries, `freeaiagent rm`
+- PyPI release automation
 
 ---
 
