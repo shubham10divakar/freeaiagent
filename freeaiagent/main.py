@@ -14,7 +14,7 @@ app = FastAPI(
         "Local AI agent service. "
         "Persistent context, multi-model LLM backends, HTTP endpoints for any app to delegate tasks."
     ),
-    version="1.0.0",
+    version="1.1.0",
 )
 
 app.include_router(chat_api)
