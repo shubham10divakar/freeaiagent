@@ -9,15 +9,14 @@ from typing import List, Dict, Optional
 
 import httpx2 as httpx
 from .base import BaseBackend
+from .. import catalog
 
 LLAMAFILE_DIR = Path.home() / ".freeaiagent" / "llamafile"
 
-# Llama-3.2-1B-Instruct: ~1.4 GB, fast, good quality, self-contained executable
-DEFAULT_URL = (
-    "https://huggingface.co/Mozilla/Llama-3.2-1B-Instruct-llamafile"
-    "/resolve/main/Llama-3.2-1B-Instruct.Q6_K.llamafile"
-)
-DEFAULT_MODEL = "Llama-3.2-1B-Instruct"
+# Default local model is a catalog name (resolved to a URL via catalog.py).
+# 3B (not 1B) because the fallback workload includes reasoning/Q&A, which 1B can't do.
+DEFAULT_MODEL = catalog.DEFAULT_MODEL  # "llama-3.2-3b"
+DEFAULT_URL = catalog.url_for(DEFAULT_MODEL)
 
 _proc: Optional[subprocess.Popen] = None
 
@@ -40,12 +39,16 @@ class LlamafileBackend(BaseBackend):
     def __init__(
         self,
         port: int = 8080,
-        download_url: str = DEFAULT_URL,
-        auto_download: bool = True,
+        model: str = DEFAULT_MODEL,
+        download_url: Optional[str] = None,
+        auto_download: bool = False,
         auto_start: bool = True,
     ):
         self.port = port
-        self.download_url = download_url
+        self.model = model
+        # explicit download_url wins; otherwise resolve the model via the catalog;
+        # fall back to the default URL for unknown names.
+        self.download_url = download_url or catalog.url_for(model) or DEFAULT_URL
         self.auto_download = auto_download
         self.auto_start = auto_start
 
@@ -68,15 +71,16 @@ class LlamafileBackend(BaseBackend):
         except Exception:
             return False
 
-    def _download(self) -> None:
+    def download(self, force: bool = False) -> Path:
+        """Download the llamafile model, streaming a progress bar to stdout.
+
+        Returns the path to the (already- or newly-) downloaded binary.
+        Idempotent: a no-op if the file already exists unless force=True.
+        """
         path = self._bin()
-        if path.exists():
-            return
+        if path.exists() and not force:
+            return path
         LLAMAFILE_DIR.mkdir(parents=True, exist_ok=True)
-        print(
-            "\nFirst-time setup: downloading local AI model (~1.4 GB)."
-            "\nThis happens once — subsequent starts are instant.\n"
-        )
         tmp = path.with_suffix(".part")
         try:
             with urllib.request.urlopen(self.download_url) as resp:
@@ -87,10 +91,7 @@ class LlamafileBackend(BaseBackend):
                         f.write(chunk)
                         done += len(chunk)
                         if total:
-                            pct = done * 100 // total
-                            mb = done // (1024 * 1024)
-                            total_mb = total // (1024 * 1024)
-                            print(f"\r  {pct:3d}%  {mb} / {total_mb} MB", end="", flush=True)
+                            self._print_progress(done, total)
             tmp.rename(path)
             print("\n  Download complete.\n")
             if platform.system() != "Windows":
@@ -98,6 +99,17 @@ class LlamafileBackend(BaseBackend):
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
+        return path
+
+    @staticmethod
+    def _print_progress(done: int, total: int) -> None:
+        pct = done * 100 // total
+        mb = done / (1024 * 1024)
+        total_mb = total / (1024 * 1024)
+        bar_len = 30
+        filled = pct * bar_len // 100
+        bar = "#" * filled + "-" * (bar_len - filled)
+        print(f"\r  [{bar}] {pct:3d}%  {mb:6.1f} / {total_mb:.1f} MB", end="", flush=True)
 
     def _start(self) -> None:
         global _proc
@@ -106,7 +118,10 @@ class LlamafileBackend(BaseBackend):
         path = self._bin()
         if not path.exists():
             raise FileNotFoundError(f"llamafile binary not found: {path}")
-        print(f"Starting local AI model on port {self.port}...")
+        url = f"http://127.0.0.1:{self.port}"
+        print(f"\n[local model] starting: {path.name}")
+        print(f"[local model] server:   {url}  (OpenAI-compatible at {url}/v1)")
+        print(f"[local model] loading model into memory...")
         _proc = subprocess.Popen(
             [
                 str(path),
@@ -121,11 +136,12 @@ class LlamafileBackend(BaseBackend):
         )
         for i in range(60):
             if self._running():
-                print("  Ready.\n")
+                print(f"[local model] ready at {url} — send chats to the agent "
+                      f"(e.g. `freeaiagent chat \"hi\"`), not directly here.\n")
                 return
             time.sleep(1)
             if i > 0 and i % 10 == 9:
-                print(f"  Still loading... ({i + 1}s)")
+                print(f"[local model] still loading... ({i + 1}s)")
         raise RuntimeError("llamafile did not become ready within 60 seconds.")
 
     async def is_available(self) -> bool:
@@ -135,8 +151,10 @@ class LlamafileBackend(BaseBackend):
         if not self.auto_start:
             return False
         try:
-            if self.auto_download and not self._bin().exists():
-                await asyncio.to_thread(self._download)
+            if not self._bin().exists():
+                if not self.auto_download:
+                    return False  # model not installed — run `freeaiagent pull`
+                await asyncio.to_thread(self.download)
             if self._bin().exists():
                 await asyncio.to_thread(self._start)
                 return self._running()

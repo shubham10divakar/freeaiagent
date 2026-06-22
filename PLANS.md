@@ -8,9 +8,14 @@
 | 1 | OpenAI-compatible backend (LM Studio, llamafile, LocalAI, Jan) | **Done** |
 | 1 | Per-call model + backend override on `/chat` and `/task` | **Done** |
 | 1 | Sliding window context (`max_messages`) | **Done** |
-| 2 | Named sessions | Planned |
-| 3 | Auto caller detection | Planned |
-| 4 | More backends, streaming, tool use, web UI, PyPI publish | Planned |
+| 2 | Named sessions (`session_id`, `/sessions` CRUD) | **Done** |
+| 2 | Chat web UI (ChatGPT-style, served at `/ui`) | **Done** |
+| 4 | llamafile dedicated backend (auto-download + auto-start, `freeaiagent pull`) | **Done** |
+| 3 | Auto caller detection (`X-Caller-ID`) | Planned |
+| 4 | More backends (Together, OpenRouter, Cerebras, Gemini) | Planned |
+| 4 | Streaming (`/chat/stream`), tool use / function calling | Planned |
+| 4 | Multi-model local backend (GGUF catalog, user-chosen downloads) — see [MULTI_MODEL_DESIGN.md](MULTI_MODEL_DESIGN.md) | Planned |
+| 4 | PyPI publish | Planned |
 
 ---
 
@@ -135,9 +140,10 @@ Out-of-order messages can confuse some models.
 
 ## Session Handling
 
-### Phase 2 — Named Sessions
+### Phase 2 — Named Sessions — **Done**
 
 Each caller passes a `session_id`. Different apps and UI chats maintain separate context threads.
+(Shipped — endpoints, `sessions` table, and CLI below are implemented.)
 
 **API changes:**
 ```
@@ -223,32 +229,56 @@ ports change per process). Header-based is solid. Document both.
 | Ollama | Done | Own protocol + openai-compat |
 | Groq | Done | Free tier, fast |
 | OpenAI-compatible | Done | Covers LM Studio, llamafile, LocalAI, Jan, llama.cpp |
-| llamafile | Planned | Dedicated backend: auto-start the .exe if not running |
+| llamafile | **Done** | Dedicated zero-install backend: auto-download + auto-start a self-contained model |
 | Together AI | Planned | Free tier available |
 | OpenRouter | Planned | Aggregates 100+ models, free tier |
 | Cerebras | Planned | Fast inference, free tier |
 | Gemini | Planned | Free tier (1500 req/day) |
 
-### llamafile Dedicated Backend (Phase 4)
+### llamafile Dedicated Backend — **Done** (download-based, not path-based)
 
-Unlike other backends, llamafile is a single file the user drops in a folder.
-The dedicated backend would auto-start it as a subprocess if not already running.
+> **Shipped, but differently than originally specced.** The original plan assumed
+> the user manually *drops a `.llamafile` in a folder* (`path`). The implemented
+> design is **download-based**: freeaiagent fetches a self-contained model on
+> demand and auto-starts it — no manual file handling.
 
+llamafile is a single self-contained executable (llama.cpp engine + GGUF weights
+fused via Cosmopolitan libc). The backend downloads it once and runs it as a
+local subprocess, exposing an OpenAI-compatible server.
+
+**Actual config (as implemented):**
 ```json
 {
   "backends": {
     "llamafile": {
       "type": "llamafile",
-      "path": "~/Magpie/llamafile/llama3.2-3b.llamafile",
       "port": 8080,
-      "auto_start": true
+      "auto_download": false
     }
   }
 }
 ```
 
+**Workflow:**
+```bash
+freeaiagent pull            # one-time ~2.3 GB download (Llama-3.2-3B), with progress bar
+freeaiagent start           # auto-starts the model on first /chat
+```
+
+- `auto_download` defaults to **false** — the download is explicit via
+  `freeaiagent pull`, not a silent first-run fetch. Set it `true` to fetch on
+  first request instead.
+- `auto_start` (default true): if the binary exists but isn't running, the
+  backend launches it and logs where it's serving.
+- Default model is **Llama-3.2-3B-Instruct Q4_K_M** — chosen over 1B because the
+  fallback workload includes reasoning/Q&A.
+
 This closes the Magpie use case completely: no Ollama install, no service, no
-UAC. User drops one file, freeaiagent handles the rest.
+UAC. `pip install` + `freeaiagent pull` and freeaiagent handles the rest.
+
+**Next step — variety of models:** the single hardcoded model evolves into a
+user-chosen GGUF catalog (low→high end) plus later live HuggingFace search.
+Full design in [MULTI_MODEL_DESIGN.md](MULTI_MODEL_DESIGN.md).
 
 ---
 
@@ -326,17 +356,21 @@ POST /tools/register
 Agent decides when to call tools mid-conversation. Results injected as
 `{"role": "tool", ...}` messages before the final response.
 
-### Chat Web UI
+### Chat Web UI — **Done**
 
 A simple ChatGPT-style interface served at `http://localhost:7731/ui`.
-No npm, no bundler, no framework — one HTML file with inline CSS + JS,
-served via FastAPI's `FileResponse`. Depends on Phase 2 (Named Sessions).
+No npm, no bundler, no framework — one HTML file (`freeaiagent/ui/index.html`)
+with inline CSS + JS, served via FastAPI's `FileResponse`. Built on Phase 2
+(Named Sessions).
 
 **Start:**
 ```bash
-freeaiagent start          # server only (default)
-freeaiagent start --ui     # server + open browser to /ui
+freeaiagent start          # then open http://localhost:7731/ui in a browser
 ```
+
+> **Not yet implemented:** the `freeaiagent start --ui` convenience flag
+> (auto-open browser). For now navigate to `/ui` manually. The spec below is the
+> as-built design.
 
 **Layout:**
 

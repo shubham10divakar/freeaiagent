@@ -20,7 +20,7 @@ async def test_resolve_returns_default_backend(isolated_config, monkeypatch):
     )
     backend, model = await router_mod.resolve()
     assert backend is llamafile
-    assert model == "Llama-3.2-1B-Instruct"
+    assert model == "llama-3.2-3b"
 
 
 @pytest.mark.unit

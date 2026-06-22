@@ -19,6 +19,10 @@ app.add_typer(config_app, name="config")
 _SETUP_GUIDE = """
 No LLM backend available. Get a free key or run locally:
 
+  Option 0 — Local model  (zero setup, no key, fully offline)
+    Run:       freeaiagent pull        (one-time ~2.3 GB download)
+               freeaiagent start
+
   Option 1 — Ollama  (local, no key, no internet)
     Download:  https://ollama.com
     Then:      ollama pull llama3.2:3b
@@ -95,15 +99,94 @@ def start(
     import uvicorn
     from .main import app as fastapi_app
 
-    p = port or load().get("port", 7731)
+    cfg = load()
+    p = port or cfg.get("port", 7731)
     typer.echo(f"freeaiagent running at http://localhost:{p}")
+    typer.echo(f"Chat UI:            http://localhost:{p}/ui")
     typer.echo(f"API docs:           http://localhost:{p}/docs")
+    typer.echo(f"Backend / model:    {cfg.get('default_backend')} / {cfg.get('default_model')}")
+    typer.echo(f"Try it:             freeaiagent chat \"hello\"")
+    typer.echo("")
     uvicorn.run(
         "freeaiagent.main:app",
         host="0.0.0.0",
         port=p,
         reload=reload,
     )
+
+
+# ---------------------------------------------------------------------------
+# pull
+# ---------------------------------------------------------------------------
+
+@app.command()
+def pull(
+    model: Optional[str] = typer.Argument(
+        None,
+        help="Catalog name (e.g. llama-3.2-3b) or a direct llamafile URL. "
+        "Omit to pull the current default model.",
+    ),
+    force: bool = typer.Option(False, "--force", help="Re-download even if the model already exists."),
+):
+    """Download a local model for offline, no-key operation.
+
+    Examples:
+      freeaiagent pull                 # the current default model
+      freeaiagent pull gemma-2-2b      # a catalog model by name
+      freeaiagent pull https://.../model.llamafile   # any llamafile URL
+    """
+    import shutil
+    from . import catalog
+    from .backends.llamafile import LlamafileBackend, LLAMAFILE_DIR
+
+    bcfg = load().get("backends", {}).get("llamafile", {})
+    port = bcfg.get("port", 8080)
+    target = model or load().get("default_model", catalog.DEFAULT_MODEL)
+
+    if target.startswith(("http://", "https://")):
+        backend = LlamafileBackend(port=port, download_url=target)
+        label, size_gb, min_ram = target.rsplit("/", 1)[-1], None, None
+    else:
+        entry = catalog.get(target)
+        if entry is None:
+            typer.echo(
+                f"Unknown model '{target}'.\n"
+                f"See available models with: freeaiagent models --available\n"
+                f"Or pass a direct llamafile URL.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        backend = LlamafileBackend(port=port, model=target)
+        label, size_gb, min_ram = entry["display"], entry["size_gb"], entry["min_ram_gb"]
+
+    path = backend._bin()
+    if path.exists() and not force:
+        typer.echo(f"Already installed: {label}\n  {path}")
+        typer.echo("Re-download with: freeaiagent pull --force")
+        return
+
+    # Disk-space sanity check (best-effort; download still allowed).
+    if size_gb:
+        LLAMAFILE_DIR.mkdir(parents=True, exist_ok=True)
+        free_gb = shutil.disk_usage(LLAMAFILE_DIR).free / (1024 ** 3)
+        if free_gb < size_gb + 0.5:
+            typer.echo(
+                f"Warning: only {free_gb:.1f} GB free; this model needs ~{size_gb} GB.",
+                err=True,
+            )
+        typer.echo(f"Downloading {label} (~{size_gb} GB, needs ~{min_ram} GB RAM to run):")
+    else:
+        typer.echo(f"Downloading {label}:")
+    typer.echo(f"  {path}\n")
+
+    try:
+        backend.download(force=force)
+    except Exception as e:
+        typer.echo(f"\nDownload failed: {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Ready. Use it with: freeaiagent config set default_model {target}"
+               if model and not target.startswith("http")
+               else "Ready. Start the agent with: freeaiagent start")
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +297,26 @@ def keys():
 # ---------------------------------------------------------------------------
 
 @app.command()
-def models():
-    """List models available on the active backend."""
+def models(
+    available: bool = typer.Option(
+        False, "--available", "-a",
+        help="List downloadable catalog models instead of the active backend's models.",
+    ),
+):
+    """List models — running on the active backend, or downloadable from the catalog."""
+    if available:
+        from . import catalog
+        default = load().get("default_model", catalog.DEFAULT_MODEL)
+        typer.echo("Downloadable local models  (freeaiagent pull <name>):\n")
+        for name, e in catalog.all_entries():
+            mark = "*" if name == default else " "
+            typer.echo(
+                f" {mark} {name:<14} {e['size_gb']:>4.1f} GB  RAM>={e['min_ram_gb']}GB  "
+                f"[{e['tier']:<4}] {e['description']}"
+            )
+        typer.echo("\n  * = current default. Larger models: freeaiagent pull <llamafile-url>")
+        return
+
     data = _agent_get("/models")
     if not data["models"]:
         typer.echo("No models found on active backend.")

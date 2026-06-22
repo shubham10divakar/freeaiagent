@@ -2,17 +2,20 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import catalog
+
 CONFIG_DIR = Path.home() / ".freeaiagent"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS: dict = {
     "default_backend": "llamafile",
-    "default_model": "Llama-3.2-1B-Instruct",
+    "default_model": "llama-3.2-3b",  # catalog name; see `freeaiagent models --available`
     "port": 7731,
     "max_messages": 0,  # 0 = unlimited; set to e.g. 20 to keep last 20 messages
     "backends": {
-        # Zero-install local backend: downloads once (~1.4 GB), starts automatically.
-        "llamafile": {"type": "llamafile", "port": 8080},
+        # Local backend: run `freeaiagent pull` once (~2.3 GB), then it starts automatically.
+        # Set auto_download=true to fetch on first request instead of via `pull`.
+        "llamafile": {"type": "llamafile", "port": 8080, "auto_download": False},
         # Ollama: install from https://ollama.com, then: ollama pull llama3.2:3b
         "ollama":    {"base_url": "http://localhost:11434"},
         # Groq: free API key at https://console.groq.com
@@ -34,6 +37,8 @@ def load() -> dict:
     # shallow merge so new default keys appear without losing user values
     merged = {**DEFAULTS, **on_disk}
     merged["backends"] = {**DEFAULTS["backends"], **on_disk.get("backends", {})}
+    # migrate legacy default_model strings (e.g. "Llama-3.2-3B-Instruct") to catalog names
+    merged["default_model"] = catalog.normalize(merged.get("default_model"))
     return merged
 
 

@@ -1,7 +1,8 @@
 from typing import List, Tuple
 from .config import load
 from .backends.base import BaseBackend
-from .backends.llamafile import LlamafileBackend, DEFAULT_URL
+from .backends.llamafile import LlamafileBackend
+from . import catalog
 from .backends.ollama import OllamaBackend
 from .backends.groq import GroqBackend
 from .backends.openai_compat import OpenAICompatibleBackend
@@ -15,8 +16,9 @@ def _build_backends(config: dict) -> dict[str, BaseBackend]:
         if btype == "llamafile":
             backends[name] = LlamafileBackend(
                 port=bcfg.get("port", 8080),
-                download_url=bcfg.get("download_url", DEFAULT_URL),
-                auto_download=bcfg.get("auto_download", True),
+                model=config.get("default_model", catalog.DEFAULT_MODEL),
+                download_url=bcfg.get("download_url"),
+                auto_download=bcfg.get("auto_download", False),
                 auto_start=bcfg.get("auto_start", True),
             )
         elif btype == "ollama":

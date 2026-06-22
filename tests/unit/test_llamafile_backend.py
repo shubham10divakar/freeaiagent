@@ -43,7 +43,7 @@ async def test_is_available_downloads_if_binary_missing(backend, tmp_path):
     with (
         patch.object(backend, "_running", side_effect=[False, True]),
         patch.object(backend, "_bin", return_value=bin_path),
-        patch.object(backend, "_download", side_effect=fake_download) as mock_dl,
+        patch.object(backend, "download", side_effect=fake_download) as mock_dl,
         patch.object(backend, "_start"),
     ):
         result = await backend.is_available()
@@ -66,7 +66,7 @@ async def test_is_available_false_when_download_fails(backend, tmp_path):
     with (
         patch.object(backend, "_running", return_value=False),
         patch.object(backend, "_bin", return_value=bin_path),
-        patch.object(backend, "_download", side_effect=OSError("network error")),
+        patch.object(backend, "download", side_effect=OSError("network error")),
     ):
         assert await backend.is_available() is False
 
@@ -80,7 +80,7 @@ async def test_download_skipped_when_binary_exists(backend, tmp_path):
     with (
         patch.object(backend, "_running", side_effect=[False, True]),
         patch.object(backend, "_bin", return_value=bin_path),
-        patch.object(backend, "_download") as mock_dl,
+        patch.object(backend, "download") as mock_dl,
         patch.object(backend, "_start"),
     ):
         await backend.is_available()
