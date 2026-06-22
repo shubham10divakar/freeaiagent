@@ -16,7 +16,13 @@
 | 4 | Streaming (`/chat/stream` SSE) | **Done** |
 | 4 | Tool use / function calling (`/tools`, `tools=true`) | **Done** |
 | 4 | Multi-model local backend (GGUF catalog + engine mode + `search`/`pull hf:`) — see [MULTI_MODEL_DESIGN.md](MULTI_MODEL_DESIGN.md) | **Done** |
-| 4 | PyPI publish | Planned |
+| 4 | PyPI publish (v1.0.0 → v1.1.0) | **Done** |
+| 5 | Python SDK (`freeaiagent.Client`) — full CLI parity + live pull progress | Planned |
+| 5 | `/pull/stream` SSE endpoint — server-side download with live progress events | Planned |
+| 5 | `/models/catalog`, `/models/installed`, `/config` HTTP endpoints | Planned |
+| 5 | Port lock file (`~/.freeaiagent/server.json`) — auto-discovery for SDK | Planned |
+| 5 | OpenAI-compatible `/v1/chat/completions` proxy endpoint | Planned |
+| 5 | System service install (`freeaiagent install` / `freeaiagent uninstall`) | Planned |
 
 ---
 
@@ -227,14 +233,14 @@ ports change per process). Header-based is solid. Document both.
 
 | Backend | Status | Notes |
 |---|---|---|
-| Ollama | Done | Own protocol + openai-compat |
-| Groq | Done | Free tier, fast |
-| OpenAI-compatible | Done | Covers LM Studio, llamafile, LocalAI, Jan, llama.cpp |
+| Ollama | **Done** | Own protocol + openai-compat |
+| Groq | **Done** | Free tier, fast |
+| OpenAI-compatible | **Done** | Covers LM Studio, llamafile, LocalAI, Jan, llama.cpp |
 | llamafile | **Done** | Dedicated zero-install backend: auto-download + auto-start a self-contained model |
-| Together AI | Planned | Free tier available |
-| OpenRouter | Planned | Aggregates 100+ models, free tier |
-| Cerebras | Planned | Fast inference, free tier |
-| Gemini | Planned | Free tier (1500 req/day) |
+| Together AI | **Done** | Built-in openai_compat preset; set api_key to activate |
+| OpenRouter | **Done** | Built-in openai_compat preset; set api_key to activate |
+| Cerebras | **Done** | Built-in openai_compat preset; set api_key to activate |
+| Gemini | **Done** | Built-in openai_compat preset with api_prefix; set api_key to activate |
 
 ### llamafile Dedicated Backend — **Done** (download-based, not path-based)
 
@@ -422,19 +428,290 @@ freeaiagent start          # then open http://localhost:7731/ui in a browser
 5. Rename: click title → inline edit → `PATCH /sessions/{id}`
 6. Delete: hover session → trash icon → `DELETE /sessions/{id}`
 
-### PyPI Publish
+### PyPI Publish — **Done**
 
-```bash
-python -m build
-twine upload dist/*
+v1.0.0 shipped. v1.1.0 shipped with model catalog, engine/weights split,
+streaming, tool use, cloud presets, caller detection, HF discovery, Chat UI.
+
+---
+
+## Phase 5 — Python SDK & Seamless App Integration
+
+**Goal:** any app (Magpie, scripts, other projects) calls freeaiagent from Python
+with one import and zero HTTP boilerplate. Live download progress so UIs can
+show a real progress bar during `pull`.
+
+---
+
+### The core problems
+
+**Problem 1 — Download progress is print-only today.**
+
+`_download_file()` calls `_print_progress()` which hardcodes `print()` to stdout.
+No way for outside code to subscribe to progress. Must be refactored to a callback
+before anything else can build on it.
+
+```
+today:   _download_file()  →  _print_progress()  →  stdout
+target:  _download_file(on_chunk=fn)  →  fn(done_bytes, total_bytes, phase)
+                                     ↗  CLI: print callback (unchanged UX)
+                                     ↗  SSE endpoint: queue.put callback
+                                     ↗  SDK: yields PullProgress objects
 ```
 
-Pre-publish checklist:
-- [ ] Smoke tests pass against Ollama
-- [ ] README reviewed
-- [ ] Version bumped in `__init__.py` + `pyproject.toml` + `setup.py`
-- [ ] `CHANGELOG.md` written
-- [ ] GitHub release tagged
+**Problem 2 — Server must own the download (not the SDK).**
+
+Magpie shouldn't know or care where `~/.freeaiagent/models/` is. The server
+manages files. Magpie calls `agent.pull("qwen2.5-7b")` and watches a live stream.
+Correct architecture: `/pull/stream` SSE endpoint; SDK subscribes.
+
+**Problem 3 — SDK surface must feel like a library, not a CLI port.**
+
+Every CLI command gets a Python equivalent, grouped naturally.
+
+---
+
+### Build order (each step unblocks the next)
+
+```
+Step 1  _download_file callback refactor      → unblocks step 2
+Step 2  /pull/stream SSE endpoint             → unblocks Client.pull()
+Step 3  /models/catalog + /models/installed + /config HTTP endpoints
+Step 4  freeaiagent/client.py full SDK
+Step 5  Port lock file (~/.freeaiagent/server.json)
+Step 6  /v1/chat/completions OpenAI-compat proxy
+Step 7  freeaiagent install (system service)
+```
+
+---
+
+### Step 1 — `_download_file` callback refactor
+
+Add `on_chunk` and `phase` params. CLI path passes `None` — behaviour and UX
+unchanged. New SSE endpoint passes a `queue.put` callback.
+
+```python
+def _download_file(self, url, dest, *, force=False, make_exec=False,
+                   on_chunk=None, phase="model") -> Path:
+    ...
+    while chunk := resp.read(1024 * 1024):
+        f.write(chunk)
+        done += len(chunk)
+        if on_chunk:
+            on_chunk(done, total, phase)
+        else:
+            self._print_progress(done, total)   # unchanged CLI fallback
+```
+
+---
+
+### Step 2 — `/pull/stream` SSE endpoint
+
+Server runs the download in a thread; a queue feeds the SSE stream. One active
+download at a time (return 409 if another is running).
+
+```
+POST /pull/stream
+Body: {"model": "qwen2.5-7b", "force": false}
+
+data: {"type": "start",    "phase": "engine", "total_mb": 305,  "label": "llamafile engine"}
+data: {"type": "progress", "phase": "engine", "pct": 42,  "downloaded_mb": 128, "total_mb": 305, "speed_mbps": 5.2}
+data: {"type": "start",    "phase": "model",  "total_mb": 4700, "label": "qwen2.5-7b"}
+data: {"type": "progress", "phase": "model",  "pct": 12,  "downloaded_mb": 564, "total_mb": 4700, "speed_mbps": 8.1}
+data: {"type": "done",     "path": "~/.freeaiagent/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"}
+data: [DONE]
+```
+
+Error event if download fails:
+```
+data: {"type": "error", "message": "Connection reset by peer"}
+data: [DONE]
+```
+
+---
+
+### Step 3 — New management endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /models/catalog` | Return catalog with `installed: true/false` per entry |
+| `GET /models/installed` | List locally downloaded model files with paths + sizes |
+| `GET /config` | Return `~/.freeaiagent/config.json` as JSON |
+| `POST /config/set` | Body: `{"key": "default_backend", "value": "groq"}` |
+
+These are currently CLI-only (read from disk in the CLI process). Moving them
+behind HTTP lets the SDK manage config without knowing the config file path.
+
+---
+
+### Step 4 — `freeaiagent/client.py`
+
+Single file, synchronous public API. SSE and streaming methods return iterators
+so callers never need `async`.
+
+**`PullProgress` dataclass:**
+
+```python
+@dataclass
+class PullProgress:
+    type: str           # "start" | "progress" | "done" | "error"
+    phase: str          # "engine" | "model"
+    label: str          # "llamafile engine" | "qwen2.5-7b"
+    pct: float          # 0–100
+    downloaded_mb: float
+    total_mb: float
+    speed_mbps: float
+    path: str | None    # set on "done"
+    error: str | None   # set on "error"
+```
+
+**`Client` class:**
+
+```python
+from freeaiagent import Client
+
+agent = Client(
+    name="magpie",        # auto sets X-Caller-ID on every request
+    auto_start=True,      # starts freeaiagent server if not running
+    session="magpie",     # default session for chat calls
+)
+
+# ── Chat ──────────────────────────────────────────────────────────────────
+response = agent.chat("hello")
+response = agent.chat("hello", session="work", model="qwen2.5-7b", tools=True)
+
+for token in agent.stream("write a haiku"):
+    print(token, end="", flush=True)
+
+result = agent.task("extract all TODOs", input=code_text)
+
+# ── Download with live progress ───────────────────────────────────────────
+for p in agent.pull("qwen2.5-7b"):
+    if p.type == "progress":
+        print(f"[{p.phase}] {p.pct:.0f}%  {p.downloaded_mb:.0f}/{p.total_mb:.0f} MB")
+    elif p.type == "done":
+        print(f"Saved to {p.path}")
+
+# callback style for simple callers:
+agent.pull("qwen2.5-7b", on_progress=lambda p: print(f"{p.pct:.0f}%"))
+
+# ── Discovery ─────────────────────────────────────────────────────────────
+agent.search("qwen2.5")                               # list HF repos
+agent.search("bartowski/Qwen2.5-7B-Instruct-GGUF")   # list files in repo
+
+# ── Models ────────────────────────────────────────────────────────────────
+agent.models.catalog()       # list with installed=True/False
+agent.models.installed()     # locally downloaded files + paths + sizes
+agent.models.active()        # currently loaded model name
+
+# ── Sessions ──────────────────────────────────────────────────────────────
+agent.sessions.list()
+agent.sessions.create("work", title="Work project")
+agent.sessions.rename("work", "Work Project v2")
+agent.sessions.delete("work")
+
+# ── Context ───────────────────────────────────────────────────────────────
+agent.context.get(session="work")    # list of {role, content, timestamp}
+agent.context.clear(session="work")
+
+# ── Config ────────────────────────────────────────────────────────────────
+agent.config.get()
+agent.config.set("default_backend", "groq")
+agent.config.set("backends.groq.api_key", "gsk_...")
+
+# ── Tools ─────────────────────────────────────────────────────────────────
+agent.tools.register("get_weather",
+    description="Get weather for a city",
+    endpoint="http://localhost:9000/weather",
+    parameters={"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+)
+agent.tools.list()
+agent.tools.unregister("get_weather")
+
+# ── Health / lifecycle ────────────────────────────────────────────────────
+agent.health()        # {"status": "ok", "backend": "llamafile", "model": "llama-3.2-3b"}
+agent.is_running()    # bool — fast health check
+agent.start()         # start server subprocess, wait until ready
+agent.stop()          # stop it
+```
+
+`auto_start=True` behaviour:
+1. Call `is_running()` — if True, do nothing
+2. Read `~/.freeaiagent/server.json` for port (step 5)
+3. If not running, spawn `freeaiagent start` as a subprocess
+4. Poll `/health` until ready (max 30 s) then proceed
+
+---
+
+### Step 5 — Port lock file
+
+Server writes `~/.freeaiagent/server.json` on start, removes it on clean exit:
+
+```json
+{"port": 7731, "pid": 12345, "started_at": "2026-06-22T10:00:00Z"}
+```
+
+`Client()` reads it instead of hardcoding 7731. Apps survive port changes with
+zero config on their side. If the file exists but the PID is dead, Client treats
+it as not running and re-starts.
+
+---
+
+### Step 6 — `/v1/chat/completions` OpenAI-compat proxy
+
+freeaiagent speaks the OpenAI wire protocol on the outside, routes internally to
+whatever backend is active. Any app already using the OpenAI SDK, LangChain,
+or LlamaIndex points `base_url` at freeaiagent — zero code change on their side.
+
+```python
+from openai import OpenAI
+llm = OpenAI(base_url="http://localhost:7731/v1", api_key="none")
+llm.chat.completions.create(model="qwen2.5-7b", messages=[...])
+```
+
+Also enables LangChain:
+```python
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(base_url="http://localhost:7731/v1", api_key="none")
+```
+
+Endpoints to implement: `POST /v1/chat/completions`, `GET /v1/models`.
+freeaiagent handles context, sessions, fallback transparently.
+
+---
+
+### Step 7 — System service (`freeaiagent install`)
+
+```bash
+freeaiagent install      # Windows: SC service or NSSM; Linux: systemd unit; Mac: launchd plist
+freeaiagent uninstall
+freeaiagent service status
+```
+
+After install, freeaiagent starts on boot and is always available. Apps use
+`Client(auto_start=False)` and assume it's up — like a local database. The
+`auto_start=True` path becomes a fast health check rather than a subprocess spawn.
+
+---
+
+### Magpie integration example (target state)
+
+```python
+# In Magpie — no LLM logic, no model management, no context handling
+from freeaiagent import Client
+
+agent = Client(name="magpie", auto_start=True)
+
+def ask_llm(prompt: str) -> str:
+    return agent.chat(prompt)
+
+def summarize(text: str) -> str:
+    return agent.task("summarize this concisely", input=text)
+
+def download_model(name: str, on_progress):
+    for p in agent.pull(name):
+        on_progress(p)   # Magpie UI renders a real progress bar
+```
 
 ---
 
