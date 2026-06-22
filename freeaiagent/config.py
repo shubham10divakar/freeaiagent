@@ -20,7 +20,17 @@ DEFAULTS: dict = {
         "ollama":    {"base_url": "http://localhost:11434"},
         # Groq: free API key at https://console.groq.com
         "groq":      {"api_key": ""},
-        # Any OpenAI-compatible server (LM Studio, LocalAI, Gemini, OpenRouter, etc.)
+        # Free cloud presets (OpenAI-compatible). Inert until you set an api_key:
+        #   freeaiagent config set backends.<name>.api_key <KEY>
+        #   freeaiagent config set default_backend <name>
+        #   freeaiagent config set default_model <model-id-for-that-provider>
+        "together":   {"type": "openai_compat", "base_url": "https://api.together.xyz", "api_key": ""},
+        "openrouter": {"type": "openai_compat", "base_url": "https://openrouter.ai/api", "api_key": ""},
+        "cerebras":   {"type": "openai_compat", "base_url": "https://api.cerebras.ai", "api_key": ""},
+        "gemini":     {"type": "openai_compat",
+                       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                       "api_prefix": "", "api_key": ""},
+        # Any other OpenAI-compatible server (LM Studio, LocalAI, etc.)
         # "lmstudio":  {"type": "openai_compat", "base_url": "http://localhost:1234"},
     },
     "fallback_order": ["llamafile", "ollama", "groq"],

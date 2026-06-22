@@ -29,11 +29,14 @@ def _build_backends(config: dict) -> dict[str, BaseBackend]:
             if bcfg.get("api_key"):
                 backends[name] = GroqBackend(bcfg["api_key"])
         elif btype == "openai_compat":
-            if bcfg.get("base_url"):
+            # Only build if there's somewhere to talk to AND, for hosted providers,
+            # a key. Presets ship with an empty api_key and stay inert until set.
+            if bcfg.get("base_url") and bcfg.get("api_key", "not-needed") != "":
                 backends[name] = OpenAICompatibleBackend(
                     base_url=bcfg["base_url"],
                     api_key=bcfg.get("api_key", "not-needed"),
                     model_list=bcfg.get("models", []),
+                    api_prefix=bcfg.get("api_prefix", "/v1"),
                 )
 
     return backends

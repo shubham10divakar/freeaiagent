@@ -12,6 +12,29 @@ def _make_backend(available: bool = True, response: str = "ok"):
 
 
 @pytest.mark.unit
+def test_openai_compat_preset_inert_without_key():
+    cfg = {"backends": {"gemini": {"type": "openai_compat", "base_url": "https://x", "api_key": ""}}}
+    assert "gemini" not in router_mod._build_backends(cfg)
+
+
+@pytest.mark.unit
+def test_openai_compat_preset_built_with_key():
+    cfg = {"backends": {"gemini": {
+        "type": "openai_compat", "base_url": "https://x", "api_prefix": "", "api_key": "AIza-key"}}}
+    backends = router_mod._build_backends(cfg)
+    assert "gemini" in backends
+    assert backends["gemini"].api_prefix == ""
+    assert backends["gemini"].api_key == "AIza-key"
+
+
+@pytest.mark.unit
+def test_local_openai_compat_still_built_without_key():
+    # local servers default api_key to "not-needed" and must still build
+    cfg = {"backends": {"lmstudio": {"type": "openai_compat", "base_url": "http://localhost:1234"}}}
+    assert "lmstudio" in router_mod._build_backends(cfg)
+
+
+@pytest.mark.unit
 async def test_resolve_returns_default_backend(isolated_config, monkeypatch):
     llamafile = _make_backend(available=True)
     monkeypatch.setattr(

@@ -62,6 +62,33 @@ def test_chat_backend_override_unknown_returns_503(client):
 
 
 @pytest.mark.integration
+def test_chat_uses_x_caller_id_header_as_session(client):
+    r = client.post("/chat", json={"message": "hi"}, headers={"X-Caller-ID": "magpie"})
+    assert r.status_code == 200
+    assert r.json()["session_id"] == "magpie"
+
+
+@pytest.mark.integration
+def test_chat_body_session_id_overrides_header(client):
+    r = client.post(
+        "/chat",
+        json={"message": "hi", "session_id": "explicit"},
+        headers={"X-Caller-ID": "magpie"},
+    )
+    assert r.json()["session_id"] == "explicit"
+
+
+@pytest.mark.integration
+def test_chat_callers_have_separate_context(client):
+    client.post("/chat", json={"message": "a1"}, headers={"X-Caller-ID": "app-a"})
+    client.post("/chat", json={"message": "a2"}, headers={"X-Caller-ID": "app-a"})
+    r_b = client.post("/chat", json={"message": "b1"}, headers={"X-Caller-ID": "app-b"})
+    # app-b is a fresh thread: just its own user + assistant
+    assert r_b.json()["context_length"] == 2
+    assert r_b.json()["session_id"] == "app-b"
+
+
+@pytest.mark.integration
 def test_chat_respects_max_messages_window(isolated_config, isolated_db, patched_router):
     import json
     from freeaiagent import config as cfg

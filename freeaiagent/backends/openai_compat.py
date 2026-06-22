@@ -17,10 +17,23 @@ class OpenAICompatibleBackend(BaseBackend):
         }
     """
 
-    def __init__(self, base_url: str, api_key: str = "not-needed", model_list: List[str] | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = "not-needed",
+        model_list: List[str] | None = None,
+        api_prefix: str = "/v1",
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self._model_list = model_list or []
+        # Path prefix before /chat/completions and /models. Default "/v1" suits
+        # most servers; Gemini's OpenAI endpoint already embeds the version
+        # (.../v1beta/openai), so it uses api_prefix="".
+        self.api_prefix = api_prefix.rstrip("/")
+
+    def _url(self, path: str) -> str:
+        return f"{self.base_url}{self.api_prefix}{path}"
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -31,10 +44,7 @@ class OpenAICompatibleBackend(BaseBackend):
     async def is_available(self) -> bool:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                r = await client.get(
-                    f"{self.base_url}/v1/models",
-                    headers=self._headers(),
-                )
+                r = await client.get(self._url("/models"), headers=self._headers())
                 return r.status_code == 200
         except Exception:
             return False
@@ -42,7 +52,7 @@ class OpenAICompatibleBackend(BaseBackend):
     async def chat(self, messages: List[Dict], model: str) -> str:
         async with httpx.AsyncClient(timeout=120.0) as client:
             r = await client.post(
-                f"{self.base_url}/v1/chat/completions",
+                self._url("/chat/completions"),
                 headers=self._headers(),
                 json={"model": model, "messages": messages},
             )
@@ -52,10 +62,7 @@ class OpenAICompatibleBackend(BaseBackend):
     async def available_models(self) -> List[str]:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(
-                    f"{self.base_url}/v1/models",
-                    headers=self._headers(),
-                )
+                r = await client.get(self._url("/models"), headers=self._headers())
                 if r.status_code == 200:
                     return [m["id"] for m in r.json().get("data", [])]
         except Exception:

@@ -35,22 +35,34 @@ No LLM backend available. Get a free key or run locally:
                freeaiagent config set default_model openai/gpt-oss-20b
                freeaiagent start
 
+  (Cloud presets below are built in — just add a key, pick the backend + a model.)
+
   Option 3 — Google Gemini  (free, 1500 requests/day)
     Get key:   https://aistudio.google.com/apikey
-    Then:      freeaiagent config set backends.gemini.type openai_compat
-               freeaiagent config set backends.gemini.base_url https://generativelanguage.googleapis.com/v1beta/openai
-               freeaiagent config set backends.gemini.api_key AIza...
+    Then:      freeaiagent config set backends.gemini.api_key AIza...
                freeaiagent config set default_backend gemini
                freeaiagent config set default_model gemini-2.0-flash
                freeaiagent start
 
   Option 4 — OpenRouter  (free models, 50+ providers)
     Sign up:   https://openrouter.ai  (free credits on signup)
-    Then:      freeaiagent config set backends.openrouter.type openai_compat
-               freeaiagent config set backends.openrouter.base_url https://openrouter.ai/api
-               freeaiagent config set backends.openrouter.api_key sk-or-...
+    Then:      freeaiagent config set backends.openrouter.api_key sk-or-...
                freeaiagent config set default_backend openrouter
                freeaiagent config set default_model meta-llama/llama-3.1-8b-instruct:free
+               freeaiagent start
+
+  Option 5 — Together AI  (free tier)
+    Sign up:   https://api.together.xyz
+    Then:      freeaiagent config set backends.together.api_key ...
+               freeaiagent config set default_backend together
+               freeaiagent config set default_model meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
+               freeaiagent start
+
+  Option 6 — Cerebras  (free tier, very fast)
+    Sign up:   https://cloud.cerebras.ai
+    Then:      freeaiagent config set backends.cerebras.api_key csk-...
+               freeaiagent config set default_backend cerebras
+               freeaiagent config set default_model llama-3.3-70b
                freeaiagent start
 
 Run 'freeaiagent keys' to see this guide anytime.

@@ -82,6 +82,22 @@ async def test_available_models_from_v1_models():
 
 
 @pytest.mark.unit
+async def test_default_api_prefix_uses_v1():
+    backend = OpenAICompatibleBackend("http://localhost:1234")
+    assert backend._url("/chat/completions") == "http://localhost:1234/v1/chat/completions"
+
+
+@pytest.mark.unit
+async def test_empty_api_prefix_for_gemini_style_url():
+    backend = OpenAICompatibleBackend(
+        "https://generativelanguage.googleapis.com/v1beta/openai", api_prefix=""
+    )
+    assert backend._url("/chat/completions") == (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
+
+
+@pytest.mark.unit
 async def test_available_models_falls_back_to_config_list():
     backend = OpenAICompatibleBackend(
         "http://localhost:1234", model_list=["fallback-model"]
