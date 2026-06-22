@@ -18,6 +18,51 @@ Built on free LLM backends:
 
 Plus **streaming**, **tool/function calling**, and **per-app sessions** out of the box.
 
+## Architecture
+
+![freeaiagent architecture](docs/architecture.svg)
+
+Your apps talk to one local HTTP service. freeaiagent owns model routing, persistent
+context, the automatic fallback chain, and tool calls — so no app needs any LLM code,
+keys, or model management of its own.
+
+<details>
+<summary>Same diagram as text (Mermaid)</summary>
+
+```mermaid
+flowchart TD
+    subgraph apps["YOUR APPS"]
+        A1["Web app<br/>Flask / Django / FastAPI"]
+        A2["Python script<br/>jobs, automation"]
+        A3["CLI / cron job"]
+        A4["Browser<br/>built-in Chat UI /ui"]
+    end
+
+    apps -->|"plain JSON over HTTP"| API
+
+    API["HTTP API · localhost:7731<br/>/chat · /task · /chat/stream · /tools · /sessions · /context"]
+
+    API --> CORE
+
+    subgraph CORE["freeaiagent server · FastAPI"]
+        R["Router<br/>backend + model per call"]
+        S["Sessions + Context<br/>SQLite, per-app (X-Caller-ID)"]
+        F["Fallback chain<br/>local → ollama → cloud"]
+        T["Tool loop<br/>calls your HTTP tools"]
+    end
+
+    CORE -->|"whichever backend is available"| B1 & B2 & B3
+
+    B1["Local model (default)<br/>llamafile + GGUF · 1B–14B<br/>zero install · offline · no key"]
+    B2["Ollama (optional)<br/>if you already run it"]
+    B3["Free cloud tiers<br/>Groq · Gemini · OpenRouter<br/>Together · Cerebras"]
+
+    DB[("Local storage ~/.freeaiagent/<br/>config.json · context.db · models/ · engine/")]
+    CORE -.-> DB
+```
+
+</details>
+
 ---
 
 ## Why
