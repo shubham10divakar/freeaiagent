@@ -1,4 +1,6 @@
+import json
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 from .. import context, router
@@ -6,6 +8,15 @@ from ..caller import resolve_session, CALLER_HEADER
 from ..config import load as load_config
 
 api = APIRouter(tags=["chat"])
+
+
+def _build_messages(req: "ChatRequest", session_id: str, max_messages: int) -> list:
+    messages = []
+    if req.system:
+        messages.append({"role": "system", "content": req.system})
+    messages += context.as_llm_messages(session_id=session_id, max_messages=max_messages)
+    messages.append({"role": "user", "content": req.message})
+    return messages
 
 
 class ChatRequest(BaseModel):
@@ -27,15 +38,9 @@ async def chat(req: ChatRequest, request: Request):
     Optionally override the model or backend for this single message.
     """
     session_id = resolve_session(req.session_id, request.headers.get(CALLER_HEADER))
-    cfg = load_config()
-    max_messages = cfg.get("max_messages", 0)
+    max_messages = load_config().get("max_messages", 0)
 
-    messages = []
-    if req.system:
-        messages.append({"role": "system", "content": req.system})
-    messages += context.as_llm_messages(session_id=session_id, max_messages=max_messages)
-    messages.append({"role": "user", "content": req.message})
-
+    messages = _build_messages(req, session_id, max_messages)
     context.append("user", req.message, session_id=session_id)
 
     try:
@@ -62,3 +67,47 @@ async def chat(req: ChatRequest, request: Request):
         "session_id": session_id,
         "context_length": context.count(session_id=session_id),
     }
+
+
+@api.post("/chat/stream")
+async def chat_stream(req: ChatRequest, request: Request):
+    """
+    Same as /chat but streams the reply as Server-Sent Events:
+        data: {"token": "Hello"}\\n\\n
+        data: {"token": " there"}\\n\\n
+        data: [DONE]\\n\\n
+
+    The full response is persisted to the session once streaming completes.
+    """
+    session_id = resolve_session(req.session_id, request.headers.get(CALLER_HEADER))
+    max_messages = load_config().get("max_messages", 0)
+
+    messages = _build_messages(req, session_id, max_messages)
+    context.append("user", req.message, session_id=session_id)
+
+    try:
+        backend, model = await router.resolve(
+            override_model=req.model,
+            override_backend=req.backend,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    async def event_stream():
+        parts: list[str] = []
+        try:
+            async for token in backend.stream(messages, model):
+                parts.append(token)
+                yield f"data: {json.dumps({'token': token})}\n\n"
+        except Exception as e:  # surface backend errors to the client as an SSE event
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            context.append(
+                "assistant", "".join(parts),
+                session_id=session_id,
+                model=model,
+                backend=type(backend).__name__,
+            )
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

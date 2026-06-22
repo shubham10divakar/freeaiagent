@@ -1,6 +1,7 @@
 import httpx2 as httpx
-from typing import List, Dict
+from typing import AsyncIterator, List, Dict
 from .base import BaseBackend
+from ._sse import openai_sse_deltas
 
 
 class OpenAICompatibleBackend(BaseBackend):
@@ -58,6 +59,18 @@ class OpenAICompatibleBackend(BaseBackend):
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
+
+    async def stream(self, messages: List[Dict], model: str) -> AsyncIterator[str]:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                self._url("/chat/completions"),
+                headers=self._headers(),
+                json={"model": model, "messages": messages, "stream": True},
+            ) as r:
+                r.raise_for_status()
+                async for delta in openai_sse_deltas(r):
+                    yield delta
 
     async def available_models(self) -> List[str]:
         try:

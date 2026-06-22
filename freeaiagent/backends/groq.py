@@ -1,6 +1,7 @@
 import httpx2 as httpx
-from typing import List, Dict
+from typing import AsyncIterator, List, Dict
 from .base import BaseBackend
+from ._sse import openai_sse_deltas
 
 # Fallback used when API key is absent or /v1/models call fails.
 # Excludes audio (whisper/orpheus), TTS, and content-moderation (safeguard/guard) models.
@@ -49,6 +50,21 @@ class GroqBackend(BaseBackend):
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
+
+    async def stream(self, messages: List[Dict], model: str) -> AsyncIterator[str]:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": model, "messages": messages, "stream": True},
+            ) as r:
+                r.raise_for_status()
+                async for delta in openai_sse_deltas(r):
+                    yield delta
 
     async def available_models(self) -> List[str]:
         """Fetch live model list from Groq API. Falls back to GROQ_FALLBACK_MODELS on error."""

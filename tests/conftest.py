@@ -26,6 +26,12 @@ def mock_backend():
     b.is_available.return_value = True
     b.chat.return_value = "Hello from mock backend"
     b.available_models.return_value = ["llama3.2:3b", "mistral:7b"]
+
+    async def _stream(messages, model):
+        for token in ["Hello", " from", " mock", " stream"]:
+            yield token
+
+    b.stream = _stream
     return b
 
 

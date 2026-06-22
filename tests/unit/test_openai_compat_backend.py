@@ -3,6 +3,47 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from freeaiagent.backends.openai_compat import OpenAICompatibleBackend
 
 
+class _FakeStreamResponse:
+    def __init__(self, lines):
+        self._lines = lines
+
+    def raise_for_status(self):
+        return None
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+
+class _FakeStreamCtx:
+    def __init__(self, lines):
+        self._lines = lines
+
+    async def __aenter__(self):
+        return _FakeStreamResponse(self._lines)
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+@pytest.mark.unit
+async def test_stream_yields_deltas():
+    backend = OpenAICompatibleBackend("http://localhost:1234")
+    lines = [
+        'data: {"choices":[{"delta":{"content":"Hi"}}]}',
+        'data: {"choices":[{"delta":{"content":" there"}}]}',
+        "data: [DONE]",
+    ]
+    with patch("freeaiagent.backends.openai_compat.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_cls.return_value.__aenter__.return_value = mock_client
+        mock_client.stream = MagicMock(return_value=_FakeStreamCtx(lines))
+        out = [d async for d in backend.stream([{"role": "user", "content": "hi"}], "m")]
+    assert out == ["Hi", " there"]
+    # streaming request must set stream=True
+    assert mock_client.stream.call_args[1]["json"]["stream"] is True
+
+
 @pytest.mark.unit
 async def test_is_available_true_when_models_endpoint_200():
     backend = OpenAICompatibleBackend("http://localhost:1234")

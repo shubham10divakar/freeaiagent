@@ -1,5 +1,6 @@
+import json
 import httpx2 as httpx
-from typing import List, Dict
+from typing import AsyncIterator, List, Dict
 from .base import BaseBackend
 
 
@@ -23,6 +24,27 @@ class OllamaBackend(BaseBackend):
             )
             r.raise_for_status()
             return r.json()["message"]["content"]
+
+    async def stream(self, messages: List[Dict], model: str) -> AsyncIterator[str]:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/api/chat",
+                json={"model": model, "messages": messages, "stream": True},
+            ) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    chunk = obj.get("message", {}).get("content")
+                    if chunk:
+                        yield chunk
+                    if obj.get("done"):
+                        return
 
     async def available_models(self) -> List[str]:
         async with httpx.AsyncClient(timeout=10.0) as client:
