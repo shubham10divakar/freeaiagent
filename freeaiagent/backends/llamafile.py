@@ -13,7 +13,18 @@ from .base import BaseBackend
 from ._sse import openai_sse_deltas
 from .. import catalog
 
-LLAMAFILE_DIR = Path.home() / ".freeaiagent" / "llamafile"
+_BASE_DIR = Path.home() / ".freeaiagent"
+LLAMAFILE_DIR = _BASE_DIR / "llamafile"   # fused .llamafile executables
+MODELS_DIR = _BASE_DIR / "models"         # external .gguf weights (engine mode)
+ENGINE_DIR = _BASE_DIR / "engine"         # the bare llamafile engine binary
+
+# Bare llamafile engine (no weights). Runs any external GGUF via `-m`.
+# Pinned for reproducibility; ~305 MB, downloaded once and reused for all GGUFs.
+ENGINE_VERSION = "0.10.3"
+ENGINE_URL = (
+    f"https://github.com/mozilla-ai/llamafile/releases/download/"
+    f"{ENGINE_VERSION}/llamafile-{ENGINE_VERSION}"
+)
 
 # Default local model is a catalog name (resolved to a URL via catalog.py).
 # 3B (not 1B) because the fallback workload includes reasoning/Q&A, which 1B can't do.
@@ -58,11 +69,33 @@ class LlamafileBackend(BaseBackend):
     def _api_base(self) -> str:
         return f"http://127.0.0.1:{self.port}/v1"
 
+    def _is_gguf(self) -> bool:
+        """External GGUF weights (engine mode) vs. a fused .llamafile executable."""
+        return self.download_url.split("?")[0].endswith(".gguf")
+
     def _bin(self) -> Path:
+        """Path to the model artifact (a fused .llamafile, or a .gguf in engine mode)."""
         name = self.download_url.split("/")[-1].split("?")[0]
+        if self._is_gguf():
+            return MODELS_DIR / name
+        # fused llamafile: needs a .exe extension to run on Windows
         if platform.system() == "Windows" and not name.endswith(".exe"):
             name += ".exe"
         return LLAMAFILE_DIR / name
+
+    def _engine_path(self) -> Path:
+        name = f"llamafile-{ENGINE_VERSION}"
+        if platform.system() == "Windows":
+            name += ".exe"
+        return ENGINE_DIR / name
+
+    def _installed(self) -> bool:
+        """True when everything needed to run this model is present locally."""
+        if not self._bin().exists():
+            return False
+        if self._is_gguf() and not self._engine_path().exists():
+            return False
+        return True
 
     def _running(self) -> bool:
         try:
@@ -74,18 +107,25 @@ class LlamafileBackend(BaseBackend):
             return False
 
     def download(self, force: bool = False) -> Path:
-        """Download the llamafile model, streaming a progress bar to stdout.
+        """Download what's needed to run this model, with a progress bar.
 
-        Returns the path to the (already- or newly-) downloaded binary.
-        Idempotent: a no-op if the file already exists unless force=True.
+        For GGUF models this also fetches the shared llamafile engine binary
+        (once). Returns the path to the model artifact. Idempotent.
         """
-        path = self._bin()
-        if path.exists() and not force:
-            return path
-        LLAMAFILE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".part")
+        if self._is_gguf():
+            engine = self._engine_path()
+            if not engine.exists():
+                print("First-time setup: downloading the llamafile engine (~305 MB, one-time).")
+                self._download_file(ENGINE_URL, engine, make_exec=True)
+        return self._download_file(self.download_url, self._bin(), force=force, make_exec=not self._is_gguf())
+
+    def _download_file(self, url: str, dest: Path, force: bool = False, make_exec: bool = False) -> Path:
+        if dest.exists() and not force:
+            return dest
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.parent / (dest.name + ".part")
         try:
-            with urllib.request.urlopen(self.download_url) as resp:
+            with urllib.request.urlopen(url) as resp:
                 total = int(resp.headers.get("Content-Length", 0))
                 done = 0
                 with open(tmp, "wb") as f:
@@ -94,14 +134,14 @@ class LlamafileBackend(BaseBackend):
                         done += len(chunk)
                         if total:
                             self._print_progress(done, total)
-            tmp.rename(path)
+            tmp.rename(dest)
             print("\n  Download complete.\n")
-            if platform.system() != "Windows":
-                path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+            if make_exec and platform.system() != "Windows":
+                dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
-        return path
+        return dest
 
     @staticmethod
     def _print_progress(done: int, total: int) -> None:
@@ -113,26 +153,32 @@ class LlamafileBackend(BaseBackend):
         bar = "#" * filled + "-" * (bar_len - filled)
         print(f"\r  [{bar}] {pct:3d}%  {mb:6.1f} / {total_mb:.1f} MB", end="", flush=True)
 
+    def _command(self) -> list:
+        """Subprocess argv: run the engine with -m for GGUF, else the fused file."""
+        common = [
+            "--server",
+            "--host", "127.0.0.1",
+            "--port", str(self.port),
+            "--nobrowser",
+            "-ngl", "9999",      # use GPU layers if available, CPU otherwise
+        ]
+        if self._is_gguf():
+            return [str(self._engine_path()), "-m", str(self._bin())] + common
+        return [str(self._bin())] + common
+
     def _start(self) -> None:
         global _proc
         if self._running():
             return
-        path = self._bin()
-        if not path.exists():
-            raise FileNotFoundError(f"llamafile binary not found: {path}")
+        if not self._installed():
+            raise FileNotFoundError(f"local model not installed: {self._bin()}")
         url = f"http://127.0.0.1:{self.port}"
-        print(f"\n[local model] starting: {path.name}")
+        engine_note = " (engine + GGUF)" if self._is_gguf() else ""
+        print(f"\n[local model] starting: {self._bin().name}{engine_note}")
         print(f"[local model] server:   {url}  (OpenAI-compatible at {url}/v1)")
         print(f"[local model] loading model into memory...")
         _proc = subprocess.Popen(
-            [
-                str(path),
-                "--server",
-                "--host", "127.0.0.1",
-                "--port", str(self.port),
-                "--nobrowser",
-                "-ngl", "9999",      # use GPU layers if available, CPU otherwise
-            ],
+            self._command(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -153,11 +199,11 @@ class LlamafileBackend(BaseBackend):
         if not self.auto_start:
             return False
         try:
-            if not self._bin().exists():
+            if not self._installed():
                 if not self.auto_download:
                     return False  # model not installed — run `freeaiagent pull`
                 await asyncio.to_thread(self.download)
-            if self._bin().exists():
+            if self._installed():
                 await asyncio.to_thread(self._start)
                 return self._running()
         except Exception as e:

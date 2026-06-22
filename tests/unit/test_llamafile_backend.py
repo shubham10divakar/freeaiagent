@@ -153,3 +153,78 @@ def test_bin_path_no_exe_on_linux(tmp_path):
         with patch.object(platform, "system", return_value="Linux"):
             path = backend._bin()
     assert path.suffix != ".exe"
+
+
+# ── Engine/weights split (GGUF models) ───────────────────────────────────────
+
+@pytest.mark.unit
+def test_gguf_model_detected_and_routed_to_models_dir(tmp_path):
+    from freeaiagent.backends import llamafile as lf
+    backend = LlamafileBackend(model="qwen2.5-7b")
+    assert backend._is_gguf() is True
+    with patch.object(lf, "MODELS_DIR", tmp_path):
+        path = backend._bin()
+    assert path.name.endswith(".gguf")  # gguf keeps its extension, even on Windows
+    assert path.parent == tmp_path
+
+
+@pytest.mark.unit
+def test_fused_model_is_not_gguf():
+    backend = LlamafileBackend(model="llama-3.2-3b")
+    assert backend._is_gguf() is False
+
+
+@pytest.mark.unit
+def test_command_uses_engine_with_m_for_gguf():
+    backend = LlamafileBackend(model="qwen2.5-7b", port=9001)
+    cmd = backend._command()
+    assert cmd[0] == str(backend._engine_path())
+    assert "-m" in cmd and str(backend._bin()) in cmd
+    assert "--server" in cmd
+    assert "9001" in cmd
+
+
+@pytest.mark.unit
+def test_command_runs_fused_file_directly():
+    backend = LlamafileBackend(model="llama-3.2-3b")
+    cmd = backend._command()
+    assert cmd[0] == str(backend._bin())
+    assert "-m" not in cmd
+
+
+@pytest.mark.unit
+def test_installed_requires_engine_for_gguf(tmp_path, monkeypatch):
+    from freeaiagent.backends import llamafile as lf
+    monkeypatch.setattr(lf, "MODELS_DIR", tmp_path / "models")
+    monkeypatch.setattr(lf, "ENGINE_DIR", tmp_path / "engine")
+    backend = LlamafileBackend(model="qwen2.5-7b")
+
+    gguf = backend._bin()
+    gguf.parent.mkdir(parents=True, exist_ok=True)
+    gguf.touch()
+    # GGUF present but engine missing -> not installed
+    assert backend._installed() is False
+
+    engine = backend._engine_path()
+    engine.parent.mkdir(parents=True, exist_ok=True)
+    engine.touch()
+    assert backend._installed() is True
+
+
+@pytest.mark.unit
+def test_download_fetches_engine_then_model_for_gguf(tmp_path, monkeypatch):
+    from freeaiagent.backends import llamafile as lf
+    backend = LlamafileBackend(model="qwen2.5-7b")
+    calls = []
+
+    def fake_dl(url, dest, force=False, make_exec=False):
+        calls.append(url)
+        return dest
+
+    monkeypatch.setattr(backend, "_download_file", fake_dl)
+    # point engine at a path that doesn't exist so download() fetches it
+    monkeypatch.setattr(backend, "_engine_path", lambda: tmp_path / "engine-missing")
+    backend.download()
+
+    assert calls[0] == lf.ENGINE_URL          # engine fetched first
+    assert calls[1].endswith(".gguf")         # then the model weights

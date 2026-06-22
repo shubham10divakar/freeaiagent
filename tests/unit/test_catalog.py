@@ -18,12 +18,34 @@ def test_get_unknown_returns_none():
 
 @pytest.mark.unit
 def test_every_entry_has_required_fields():
-    required = {"display", "url", "size_gb", "min_ram_gb", "tier", "description"}
+    required = {"display", "url", "kind", "size_gb", "min_ram_gb", "tier", "description"}
     for name, entry in catalog.all_entries():
         assert required <= entry.keys(), f"{name} missing fields"
         assert entry["url"].startswith("https://")
-        assert entry["url"].endswith(".llamafile")
-        assert entry["size_gb"] < 4.0, f"{name} fused file must stay under the 4 GB Windows cap"
+        assert entry["kind"] in ("llamafile", "gguf")
+
+
+@pytest.mark.unit
+def test_fused_entries_stay_under_windows_4gb_cap():
+    for name, entry in catalog.all_entries():
+        if entry["kind"] == "llamafile":
+            assert entry["url"].endswith(".llamafile")
+            assert entry["size_gb"] < 4.0, f"{name} fused file exceeds the 4 GB Windows cap"
+
+
+@pytest.mark.unit
+def test_gguf_entries_point_at_gguf_files():
+    gguf = [e for _, e in catalog.all_entries() if e["kind"] == "gguf"]
+    assert gguf, "expected at least one engine-run GGUF model"
+    for entry in gguf:
+        assert entry["url"].endswith(".gguf")
+
+
+@pytest.mark.unit
+def test_kind_of():
+    assert catalog.kind_of("llama-3.2-3b") == "llamafile"
+    assert catalog.kind_of("qwen2.5-7b") == "gguf"
+    assert catalog.kind_of("nope") is None
 
 
 @pytest.mark.unit

@@ -322,11 +322,13 @@ def models(
         typer.echo("Downloadable local models  (freeaiagent pull <name>):\n")
         for name, e in catalog.all_entries():
             mark = "*" if name == default else " "
+            run_via = "engine" if e.get("kind") == "gguf" else "fused"
             typer.echo(
-                f" {mark} {name:<14} {e['size_gb']:>4.1f} GB  RAM>={e['min_ram_gb']}GB  "
-                f"[{e['tier']:<4}] {e['description']}"
+                f" {mark} {name:<14} {e['size_gb']:>4.1f} GB  RAM>={e['min_ram_gb']:>2}GB  "
+                f"[{e['tier']:<4}] {run_via:<6} {e['description']}"
             )
-        typer.echo("\n  * = current default. Larger models: freeaiagent pull <llamafile-url>")
+        typer.echo("\n  * = current default. 'engine' models also fetch a one-time ~305 MB runtime.")
+        typer.echo("  Any other GGUF: freeaiagent pull <gguf-url>")
         return
 
     data = _agent_get("/models")
