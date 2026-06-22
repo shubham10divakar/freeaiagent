@@ -11,10 +11,11 @@
 | 2 | Named sessions (`session_id`, `/sessions` CRUD) | **Done** |
 | 2 | Chat web UI (ChatGPT-style, served at `/ui`) | **Done** |
 | 4 | llamafile dedicated backend (auto-download + auto-start, `freeaiagent pull`) | **Done** |
-| 3 | Auto caller detection (`X-Caller-ID`) | Planned |
-| 4 | More backends (Together, OpenRouter, Cerebras, Gemini) | Planned |
-| 4 | Streaming (`/chat/stream`), tool use / function calling | Planned |
-| 4 | Multi-model local backend (GGUF catalog, user-chosen downloads) — see [MULTI_MODEL_DESIGN.md](MULTI_MODEL_DESIGN.md) | Planned |
+| 3 | Auto caller detection (`X-Caller-ID`) | **Done** |
+| 4 | Cloud backend presets (Together, OpenRouter, Cerebras, Gemini) | **Done** |
+| 4 | Streaming (`/chat/stream` SSE) | **Done** |
+| 4 | Tool use / function calling (`/tools`, `tools=true`) | **Done** |
+| 4 | Multi-model local backend (GGUF catalog + engine mode + `search`/`pull hf:`) — see [MULTI_MODEL_DESIGN.md](MULTI_MODEL_DESIGN.md) | **Done** |
 | 4 | PyPI publish | Planned |
 
 ---

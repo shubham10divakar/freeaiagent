@@ -135,8 +135,8 @@ def start(
 def pull(
     model: Optional[str] = typer.Argument(
         None,
-        help="Catalog name (e.g. llama-3.2-3b) or a direct llamafile URL. "
-        "Omit to pull the current default model.",
+        help="Catalog name (e.g. llama-3.2-3b), an hf:<repo>/<file.gguf> ref, or a "
+        "direct URL. Omit to pull the current default model.",
     ),
     force: bool = typer.Option(False, "--force", help="Re-download even if the model already exists."),
 ):
@@ -145,7 +145,9 @@ def pull(
     Examples:
       freeaiagent pull                 # the current default model
       freeaiagent pull gemma-2-2b      # a catalog model by name
-      freeaiagent pull https://.../model.llamafile   # any llamafile URL
+      freeaiagent pull qwen2.5-7b      # a catalog GGUF (also fetches the engine)
+      freeaiagent pull hf:bartowski/Qwen2.5-7B-Instruct-GGUF/Qwen2.5-7B-Instruct-Q4_K_M.gguf
+      freeaiagent pull https://.../model.gguf        # any GGUF / llamafile URL
     """
     import shutil
     from . import catalog
@@ -155,7 +157,16 @@ def pull(
     port = bcfg.get("port", 8080)
     target = model or load().get("default_model", catalog.DEFAULT_MODEL)
 
-    if target.startswith(("http://", "https://")):
+    if target.startswith("hf:"):
+        from . import hf
+        try:
+            repo, fname = hf.parse_hf_ref(target)
+        except ValueError as e:
+            typer.echo(f"Invalid reference: {e}", err=True)
+            raise typer.Exit(1)
+        backend = LlamafileBackend(port=port, download_url=hf.resolve_url(repo, fname))
+        label, size_gb, min_ram = fname, None, None
+    elif target.startswith(("http://", "https://")):
         backend = LlamafileBackend(port=port, download_url=target)
         label, size_gb, min_ram = target.rsplit("/", 1)[-1], None, None
     else:
@@ -196,9 +207,69 @@ def pull(
     except Exception as e:
         typer.echo(f"\nDownload failed: {e}", err=True)
         raise typer.Exit(1)
-    typer.echo(f"Ready. Use it with: freeaiagent config set default_model {target}"
-               if model and not target.startswith("http")
-               else "Ready. Start the agent with: freeaiagent start")
+
+    is_catalog_name = bool(model) and not target.startswith(("http://", "https://", "hf:"))
+    if not model:
+        typer.echo("Ready. Start the agent with: freeaiagent start")
+    elif is_catalog_name:
+        typer.echo(f"Ready. Make it the default with:\n"
+                   f"  freeaiagent config set default_model {target}")
+    else:
+        # arbitrary URL/hf model: select it by pinning the backend's download_url
+        typer.echo(f"Ready. Use it with:\n"
+                   f"  freeaiagent config set backends.llamafile.download_url {backend.download_url}\n"
+                   f"  freeaiagent start")
+
+
+# ---------------------------------------------------------------------------
+# search
+# ---------------------------------------------------------------------------
+
+@app.command()
+def search(
+    query: str = typer.Argument(
+        ...,
+        help="Search term (lists GGUF repos), or a full repo id "
+        "'owner/name' (lists that repo's GGUF files).",
+    ),
+    limit: int = typer.Option(20, help="Max repos to show for a term search."),
+):
+    """Search HuggingFace for GGUF models to pull.
+
+    Examples:
+      freeaiagent search qwen2.5                       # find GGUF repos
+      freeaiagent search bartowski/Qwen2.5-7B-Instruct-GGUF   # list that repo's files
+    """
+    from . import hf
+
+    if "/" in query:
+        try:
+            files = hf.list_gguf_files(query)
+        except Exception as e:
+            typer.echo(f"Could not list '{query}': {e}", err=True)
+            raise typer.Exit(1)
+        if not files:
+            typer.echo("No .gguf files found in that repo.")
+            return
+        typer.echo(f"GGUF files in {query}:\n")
+        for f in files:
+            gb = f["size"] / (1024 ** 3)
+            typer.echo(f"  {f['path']:<58} {gb:6.2f} GB")
+        typer.echo(f"\nDownload one with:\n  freeaiagent pull hf:{query}/<filename>")
+        return
+
+    try:
+        repos = hf.search_models(query, limit=limit)
+    except Exception as e:
+        typer.echo(f"Search failed: {e}", err=True)
+        raise typer.Exit(1)
+    if not repos:
+        typer.echo(f"No GGUF repos found for '{query}'.")
+        return
+    typer.echo(f"GGUF repos matching '{query}' (most downloaded first):\n")
+    for m in repos:
+        typer.echo(f"  {m['id']:<58} dl={m['downloads']:>10,}  likes={m['likes']}")
+    typer.echo("\nList a repo's files with:\n  freeaiagent search <owner/name>")
 
 
 # ---------------------------------------------------------------------------

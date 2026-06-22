@@ -268,17 +268,16 @@ freeaiagent pull hf:<repo>/<file>                 # download any GGUF directly
 
 ## 13. Suggested phasing
 
-1. **Catalog + downloader + `pull <name>` / `models --available`** against the
-   current fused approach (low risk, immediate "choice of model" UX). Ship the
-   broadened known-working catalog from §4.
-2. **Engine/weights split** — switch llamafile backend to engine + external GGUF;
-   storage layout; model switching.
-3. **`llama-cpp-python` opt-in backend** — in-process engine behind `engine:`.
-4. **Polish** — RAM/disk warnings, checksums, legacy migration, custom catalog
-   entries, `rm` command.
-5. **Live HuggingFace discovery (§12)** — `search` + `pull hf:<repo>/<file>`.
-   Deliberately last: the curated catalog covers the common case; live search is
-   the power-user escape hatch.
+1. ✅ **Catalog + downloader + `pull <name>` / `models --available`** — done.
+2. ✅ **Engine/weights split** — done: bare llamafile engine (0.10.3) runs
+   external GGUF via `-m`; storage split into `engine/` + `models/`; GGUF
+   catalog entries (qwen2.5-7b, llama-3.1-8b, qwen2.5-14b).
+3. ⏳ **`llama-cpp-python` opt-in backend** — not done (still deferred; the
+   engine path covers the need without a compiled dependency).
+4. ◐ **Polish** — disk warning + legacy migration done; checksums, custom
+   catalog entries, and a `rm` command still TODO.
+5. ✅ **Live HuggingFace discovery (§12)** — done: `freeaiagent search <term|repo>`
+   and `freeaiagent pull hf:<repo>/<file>`.
 
 ---
 
