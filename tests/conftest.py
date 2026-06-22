@@ -52,7 +52,14 @@ def patched_router(mock_backend, monkeypatch):
 
 
 @pytest.fixture
-def client(isolated_config, isolated_db, patched_router):
+def isolated_tools(tmp_path, monkeypatch):
+    """Redirect the tool registry file to a temp location."""
+    monkeypatch.setattr("freeaiagent.tools.TOOLS_FILE", tmp_path / "tools.json")
+    return tmp_path / "tools.json"
+
+
+@pytest.fixture
+def client(isolated_config, isolated_db, isolated_tools, patched_router):
     """FastAPI TestClient with mocked backend and isolated storage."""
     from freeaiagent.main import app
     with TestClient(app) as c:

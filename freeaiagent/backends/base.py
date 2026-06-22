@@ -20,3 +20,12 @@ class BaseBackend(ABC):
         Backends that support token streaming override this.
         """
         yield await self.chat(messages, model)
+
+    async def chat_completion(self, messages: List[Dict], model: str, tools=None) -> Dict:
+        """Return the raw assistant message dict (may contain `tool_calls`).
+
+        Default ignores `tools` and returns a plain answer, so backends/models
+        without tool support degrade gracefully. OpenAI-protocol backends
+        override this to pass `tools` and surface tool calls.
+        """
+        return {"role": "assistant", "content": await self.chat(messages, model)}

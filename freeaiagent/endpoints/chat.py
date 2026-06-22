@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-from .. import context, router
+from .. import context, router, tools as tool_registry
 from ..caller import resolve_session, CALLER_HEADER
 from ..config import load as load_config
 
@@ -25,6 +25,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     backend: Optional[str] = None
     session_id: str = "default"
+    tools: bool = False  # let the model call registered tools mid-conversation
 
 
 @api.post("/chat")
@@ -51,7 +52,10 @@ async def chat(req: ChatRequest, request: Request):
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    response = await backend.chat(messages, model)
+    if req.tools and tool_registry.all_tools():
+        response = await tool_registry.run(backend, model, messages)
+    else:
+        response = await backend.chat(messages, model)
 
     context.append(
         "assistant", response,

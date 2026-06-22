@@ -72,6 +72,17 @@ class OpenAICompatibleBackend(BaseBackend):
                 async for delta in openai_sse_deltas(r):
                     yield delta
 
+    async def chat_completion(self, messages: List[Dict], model: str, tools=None) -> Dict:
+        payload: Dict = {"model": model, "messages": messages}
+        if tools:
+            payload["tools"] = tools
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(
+                self._url("/chat/completions"), headers=self._headers(), json=payload
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]
+
     async def available_models(self) -> List[str]:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:

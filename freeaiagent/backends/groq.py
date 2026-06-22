@@ -66,6 +66,22 @@ class GroqBackend(BaseBackend):
                 async for delta in openai_sse_deltas(r):
                     yield delta
 
+    async def chat_completion(self, messages: List[Dict], model: str, tools=None) -> Dict:
+        payload: Dict = {"model": model, "messages": messages}
+        if tools:
+            payload["tools"] = tools
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]
+
     async def available_models(self) -> List[str]:
         """Fetch live model list from Groq API. Falls back to GROQ_FALLBACK_MODELS on error."""
         try:
