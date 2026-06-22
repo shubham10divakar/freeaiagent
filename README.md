@@ -1,4 +1,4 @@
-# freeaiagent
+# freeaiagent — free local AI agent, zero setup
 
 [![PyPI Downloads](https://img.shields.io/pypi/dm/freeaiagent?style=flat-square&logo=pypi&label=Downloads&color=blue)](https://pypi.org/project/freeaiagent/)
 [![Total Downloads](https://pepy.tech/badge/freeaiagent)](https://pepy.tech/project/freeaiagent)
@@ -7,12 +7,12 @@
 [![License](https://img.shields.io/github/license/shubham10divakar/freeaiagent?style=flat-square)](https://github.com/shubham10divakar/freeaiagent/blob/main/LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/shubham10divakar/freeaiagent?style=flat-square&logo=github)](https://github.com/shubham10divakar/freeaiagent)
 
-A local AI agent service you `pip install` once and call from anywhere.
+Run a local AI agent with one `pip install`. No OpenAI key, no cloud required — it downloads and runs a local LLM for you, or connects to free cloud tiers (Groq, Gemini, OpenRouter). Any app calls it over HTTP with no LLM code on its side.
 
 Runs as a persistent HTTP server on `localhost:7731`. Stores conversation history in SQLite. Any app — script, CLI tool, personal project — can delegate tasks to it with a single HTTP call, no LLM code required on the caller's side.
 
 Built on free LLM backends:
-- **Local, zero-install** — a self-contained model the agent downloads and runs for you (no Ollama, no keys). Larger models (7B–14B) run via an auto-downloaded engine.
+- **Local, zero-install** — downloads and runs a local GGUF model for you via llamafile (no Ollama, no keys). Supports 1B–14B models.
 - **Ollama** — local, no key, if you already use it.
 - **Free cloud tiers** — Groq, Google Gemini, OpenRouter, Together, Cerebras (bring a free API key).
 

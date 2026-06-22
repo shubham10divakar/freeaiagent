@@ -5,14 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "freeaiagent"
 version = "1.1.0"
-description = "Local AI agent service — HTTP endpoints, persistent context, multi-model LLM backend"
+description = "Free local AI agent: zero-setup local LLM (llamafile/GGUF), Groq, Gemini, Ollama — HTTP API, sessions, streaming, tool use"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Subham", email = "shubham.divakar@gmail.com" }
 ]
-keywords = ["llm", "agent", "ollama", "groq", "local", "ai", "fastapi"]
+keywords = [
+    "llm", "local-llm", "gguf", "llamafile",
+    "ai-agent", "agent", "chatbot",
+    "ollama", "groq", "openai", "free-llm",
+    "fastapi", "http-api",
+    "huggingface", "no-api-key",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
