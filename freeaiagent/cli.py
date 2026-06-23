@@ -109,7 +109,7 @@ def start(
 ):
     """Start the freeaiagent server."""
     import uvicorn
-    from .main import app as fastapi_app
+    from . import server as server_mod
 
     cfg = load()
     p = port or cfg.get("port", 7731)
@@ -119,12 +119,17 @@ def start(
     typer.echo(f"Backend / model:    {cfg.get('default_backend')} / {cfg.get('default_model')}")
     typer.echo(f"Try it:             freeaiagent chat \"hello\"")
     typer.echo("")
-    uvicorn.run(
-        "freeaiagent.main:app",
-        host="0.0.0.0",
-        port=p,
-        reload=reload,
-    )
+    # Publish the port so SDK clients can auto-discover us; clean up on exit.
+    server_mod.write_lock(p)
+    try:
+        uvicorn.run(
+            "freeaiagent.main:app",
+            host="0.0.0.0",
+            port=p,
+            reload=reload,
+        )
+    finally:
+        server_mod.remove_lock()
 
 
 # ---------------------------------------------------------------------------
