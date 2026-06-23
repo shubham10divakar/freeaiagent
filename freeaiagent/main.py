@@ -7,6 +7,7 @@ from .endpoints.context import api as context_api
 from .endpoints.health import api as health_api
 from .endpoints.sessions import api as sessions_api
 from .endpoints.tools import api as tools_api
+from .endpoints.models import api as models_api
 
 app = FastAPI(
     title="freeaiagent",
@@ -23,6 +24,7 @@ app.include_router(context_api)
 app.include_router(health_api)
 app.include_router(sessions_api)
 app.include_router(tools_api)
+app.include_router(models_api)
 
 _UI_PATH = os.path.join(os.path.dirname(__file__), "ui", "index.html")
 

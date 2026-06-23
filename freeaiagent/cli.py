@@ -150,37 +150,20 @@ def pull(
       freeaiagent pull https://.../model.gguf        # any GGUF / llamafile URL
     """
     import shutil
-    from . import catalog
-    from .backends.llamafile import LlamafileBackend, LLAMAFILE_DIR
+    from . import catalog, pull as pull_mod
+    from .backends.llamafile import LLAMAFILE_DIR
 
     bcfg = load().get("backends", {}).get("llamafile", {})
     port = bcfg.get("port", 8080)
     target = model or load().get("default_model", catalog.DEFAULT_MODEL)
 
-    if target.startswith("hf:"):
-        from . import hf
-        try:
-            repo, fname = hf.parse_hf_ref(target)
-        except ValueError as e:
-            typer.echo(f"Invalid reference: {e}", err=True)
-            raise typer.Exit(1)
-        backend = LlamafileBackend(port=port, download_url=hf.resolve_url(repo, fname))
-        label, size_gb, min_ram = fname, None, None
-    elif target.startswith(("http://", "https://")):
-        backend = LlamafileBackend(port=port, download_url=target)
-        label, size_gb, min_ram = target.rsplit("/", 1)[-1], None, None
-    else:
-        entry = catalog.get(target)
-        if entry is None:
-            typer.echo(
-                f"Unknown model '{target}'.\n"
-                f"See available models with: freeaiagent models --available\n"
-                f"Or pass a direct llamafile URL.",
-                err=True,
-            )
-            raise typer.Exit(1)
-        backend = LlamafileBackend(port=port, model=target)
-        label, size_gb, min_ram = entry["display"], entry["size_gb"], entry["min_ram_gb"]
+    try:
+        pt = pull_mod.resolve_target(target, port=port)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    backend = pt.backend
+    label, size_gb, min_ram = pt.label, pt.size_gb, pt.min_ram_gb
 
     path = backend._bin()
     if path.exists() and not force:
