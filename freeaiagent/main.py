@@ -7,6 +7,9 @@ from .endpoints.context import api as context_api
 from .endpoints.health import api as health_api
 from .endpoints.sessions import api as sessions_api
 from .endpoints.tools import api as tools_api
+from .endpoints.models import api as models_api
+from .endpoints.config import api as config_api
+from .endpoints.openai import api as openai_api
 
 app = FastAPI(
     title="freeaiagent",
@@ -14,7 +17,7 @@ app = FastAPI(
         "Local AI agent service. "
         "Persistent context, multi-model LLM backends, HTTP endpoints for any app to delegate tasks."
     ),
-    version="1.1.0",
+    version="1.2.0",
 )
 
 app.include_router(chat_api)
@@ -23,6 +26,9 @@ app.include_router(context_api)
 app.include_router(health_api)
 app.include_router(sessions_api)
 app.include_router(tools_api)
+app.include_router(models_api)
+app.include_router(config_api)
+app.include_router(openai_api)
 
 _UI_PATH = os.path.join(os.path.dirname(__file__), "ui", "index.html")
 

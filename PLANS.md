@@ -17,12 +17,12 @@
 | 4 | Tool use / function calling (`/tools`, `tools=true`) | **Done** |
 | 4 | Multi-model local backend (GGUF catalog + engine mode + `search`/`pull hf:`) — see [MULTI_MODEL_DESIGN.md](MULTI_MODEL_DESIGN.md) | **Done** |
 | 4 | PyPI publish (v1.0.0 → v1.1.0) | **Done** |
-| 5 | Python SDK (`freeaiagent.Client`) — full CLI parity + live pull progress | Planned |
-| 5 | `/pull/stream` SSE endpoint — server-side download with live progress events | Planned |
-| 5 | `/models/catalog`, `/models/installed`, `/config` HTTP endpoints | Planned |
-| 5 | Port lock file (`~/.freeaiagent/server.json`) — auto-discovery for SDK | Planned |
-| 5 | OpenAI-compatible `/v1/chat/completions` proxy endpoint | Planned |
-| 5 | System service install (`freeaiagent install` / `freeaiagent uninstall`) | Planned |
+| 5 | Python SDK (`freeaiagent.Client`) — full CLI parity + live pull progress | **Done** |
+| 5 | `/pull/stream` SSE endpoint — server-side download with live progress events | **Done** |
+| 5 | `/models/catalog`, `/models/installed`, `/config` HTTP endpoints | **Done** |
+| 5 | Port lock file (`~/.freeaiagent/server.json`) — auto-discovery for SDK | **Done** |
+| 5 | OpenAI-compatible `/v1/chat/completions` proxy endpoint | **Done** |
+| 5 | System service install (`freeaiagent install` / `freeaiagent uninstall`) | **Done** |
 
 ---
 

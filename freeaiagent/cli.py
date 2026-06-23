@@ -13,8 +13,10 @@ app = typer.Typer(
 )
 context_app = typer.Typer(help="Manage conversation context.")
 config_app = typer.Typer(help="Read and update configuration.")
+service_app = typer.Typer(help="Inspect the installed system service.")
 app.add_typer(context_app, name="context")
 app.add_typer(config_app, name="config")
+app.add_typer(service_app, name="service")
 
 _SETUP_GUIDE = """
 No LLM backend available. Get a free key or run locally:
@@ -109,7 +111,7 @@ def start(
 ):
     """Start the freeaiagent server."""
     import uvicorn
-    from .main import app as fastapi_app
+    from . import server as server_mod
 
     cfg = load()
     p = port or cfg.get("port", 7731)
@@ -119,12 +121,17 @@ def start(
     typer.echo(f"Backend / model:    {cfg.get('default_backend')} / {cfg.get('default_model')}")
     typer.echo(f"Try it:             freeaiagent chat \"hello\"")
     typer.echo("")
-    uvicorn.run(
-        "freeaiagent.main:app",
-        host="0.0.0.0",
-        port=p,
-        reload=reload,
-    )
+    # Publish the port so SDK clients can auto-discover us; clean up on exit.
+    server_mod.write_lock(p)
+    try:
+        uvicorn.run(
+            "freeaiagent.main:app",
+            host="0.0.0.0",
+            port=p,
+            reload=reload,
+        )
+    finally:
+        server_mod.remove_lock()
 
 
 # ---------------------------------------------------------------------------
@@ -150,37 +157,20 @@ def pull(
       freeaiagent pull https://.../model.gguf        # any GGUF / llamafile URL
     """
     import shutil
-    from . import catalog
-    from .backends.llamafile import LlamafileBackend, LLAMAFILE_DIR
+    from . import catalog, pull as pull_mod
+    from .backends.llamafile import LLAMAFILE_DIR
 
     bcfg = load().get("backends", {}).get("llamafile", {})
     port = bcfg.get("port", 8080)
     target = model or load().get("default_model", catalog.DEFAULT_MODEL)
 
-    if target.startswith("hf:"):
-        from . import hf
-        try:
-            repo, fname = hf.parse_hf_ref(target)
-        except ValueError as e:
-            typer.echo(f"Invalid reference: {e}", err=True)
-            raise typer.Exit(1)
-        backend = LlamafileBackend(port=port, download_url=hf.resolve_url(repo, fname))
-        label, size_gb, min_ram = fname, None, None
-    elif target.startswith(("http://", "https://")):
-        backend = LlamafileBackend(port=port, download_url=target)
-        label, size_gb, min_ram = target.rsplit("/", 1)[-1], None, None
-    else:
-        entry = catalog.get(target)
-        if entry is None:
-            typer.echo(
-                f"Unknown model '{target}'.\n"
-                f"See available models with: freeaiagent models --available\n"
-                f"Or pass a direct llamafile URL.",
-                err=True,
-            )
-            raise typer.Exit(1)
-        backend = LlamafileBackend(port=port, model=target)
-        label, size_gb, min_ram = entry["display"], entry["size_gb"], entry["min_ram_gb"]
+    try:
+        pt = pull_mod.resolve_target(target, port=port)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    backend = pt.backend
+    label, size_gb, min_ram = pt.label, pt.size_gb, pt.min_ram_gb
 
     path = backend._bin()
     if path.exists() and not force:
@@ -464,3 +454,44 @@ def config_set(
 def config_show():
     """Print the current configuration (API keys are shown in full — keep safe)."""
     typer.echo(json.dumps(load(), indent=2))
+
+
+# ---------------------------------------------------------------------------
+# install / uninstall / service
+# ---------------------------------------------------------------------------
+
+@app.command()
+def install():
+    """Install freeaiagent to start automatically at login (no admin needed).
+
+    Linux uses a systemd user unit, macOS a launchd agent, Windows an HKCU
+    Run entry. Afterwards the agent is always available — apps can use
+    Client(auto_start=False).
+    """
+    from . import service
+    try:
+        service.install()
+    except Exception as e:
+        typer.echo(f"Install failed: {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo("Installed. freeaiagent will start automatically on login.")
+    typer.echo("Check status with: freeaiagent service status")
+
+
+@app.command()
+def uninstall():
+    """Remove the auto-start service installed by `freeaiagent install`."""
+    from . import service
+    try:
+        service.uninstall()
+    except Exception as e:
+        typer.echo(f"Uninstall failed: {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo("Uninstalled. freeaiagent will no longer start automatically.")
+
+
+@service_app.command("status")
+def service_status():
+    """Show whether the auto-start service is installed/running."""
+    from . import service
+    typer.echo(f"Service: {service.status()}")

@@ -5,10 +5,13 @@ import subprocess
 import time
 import urllib.request
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 
 import httpx2 as httpx
 from typing import AsyncIterator
+
+# on_chunk(done_bytes, total_bytes, phase) — phase is "engine" | "model".
+ProgressCallback = Callable[[int, int, str], None]
 from .base import BaseBackend
 from ._sse import openai_sse_deltas
 from .. import catalog
@@ -106,20 +109,38 @@ class LlamafileBackend(BaseBackend):
         except Exception:
             return False
 
-    def download(self, force: bool = False) -> Path:
+    def download(self, force: bool = False, on_chunk: Optional[ProgressCallback] = None) -> Path:
         """Download what's needed to run this model, with a progress bar.
 
         For GGUF models this also fetches the shared llamafile engine binary
         (once). Returns the path to the model artifact. Idempotent.
+
+        `on_chunk(done_bytes, total_bytes, phase)` is invoked per chunk when
+        supplied; `phase` is "engine" for the shared runtime and "model" for the
+        weights. When omitted, the CLI progress bar is printed to stdout instead
+        (unchanged behaviour). This callback is what lets the SSE endpoint and
+        the SDK subscribe to live download progress.
         """
         if self._is_gguf():
             engine = self._engine_path()
             if not engine.exists():
-                print("First-time setup: downloading the llamafile engine (~305 MB, one-time).")
-                self._download_file(ENGINE_URL, engine, make_exec=True)
-        return self._download_file(self.download_url, self._bin(), force=force, make_exec=not self._is_gguf())
+                if on_chunk is None:
+                    print("First-time setup: downloading the llamafile engine (~305 MB, one-time).")
+                self._download_file(ENGINE_URL, engine, make_exec=True, on_chunk=on_chunk, phase="engine")
+        return self._download_file(
+            self.download_url, self._bin(), force=force,
+            make_exec=not self._is_gguf(), on_chunk=on_chunk, phase="model",
+        )
 
-    def _download_file(self, url: str, dest: Path, force: bool = False, make_exec: bool = False) -> Path:
+    def _download_file(
+        self,
+        url: str,
+        dest: Path,
+        force: bool = False,
+        make_exec: bool = False,
+        on_chunk: Optional[ProgressCallback] = None,
+        phase: str = "model",
+    ) -> Path:
         if dest.exists() and not force:
             return dest
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -132,10 +153,13 @@ class LlamafileBackend(BaseBackend):
                     while chunk := resp.read(1024 * 1024):
                         f.write(chunk)
                         done += len(chunk)
-                        if total:
+                        if on_chunk is not None:
+                            on_chunk(done, total, phase)
+                        elif total:
                             self._print_progress(done, total)
             tmp.rename(dest)
-            print("\n  Download complete.\n")
+            if on_chunk is None:
+                print("\n  Download complete.\n")
             if make_exec and platform.system() != "Windows":
                 dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         except Exception:

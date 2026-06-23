@@ -504,6 +504,37 @@ curl -X POST http://localhost:7731/chat \
 > (Groq, most hosted providers, some local models). Backends without support
 > answer normally instead.
 
+### Models & config management
+
+| Endpoint | Description |
+|---|---|
+| `GET /models/catalog` | Curated catalog with an `installed` flag per entry |
+| `GET /models/installed` | Local model files on disk (name, path, size, kind) |
+| `GET /config` | Effective configuration as JSON |
+| `POST /config/set` | Set a dotted key — `{"key": "default_backend", "value": "groq"}` |
+
+### `POST /pull/stream`
+
+Server-side model download, streamed as SSE so a UI can show a real progress bar.
+GGUF models emit an `engine` phase (the one-time shared runtime) before `model`.
+One download at a time (409 otherwise); an unknown model is a 400.
+
+```
+data: {"type": "start",    "phase": "model", "label": "qwen2.5-7b", "total_mb": 4700}
+data: {"type": "progress", "phase": "model", "pct": 12, "downloaded_mb": 564, "speed_mbps": 8.1}
+data: {"type": "done",     "path": "~/.freeaiagent/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"}
+data: [DONE]
+```
+
+### OpenAI-compatible (`/v1`)
+
+| Endpoint | Description |
+|---|---|
+| `POST /v1/chat/completions` | OpenAI chat completions (supports `stream: true`) |
+| `GET /v1/models` | OpenAI-shaped model list |
+
+Point any OpenAI SDK / LangChain / LlamaIndex client at `http://localhost:7731/v1`.
+
 ---
 
 ## Configuration
@@ -612,6 +643,72 @@ cloud key is exhausted or you're offline, the local model still answers.
 
 The agent runs as a separate process. Your app calls it over HTTP — no LLM dependencies, no model management, no context handling in your code.
 
+### Python SDK (recommended)
+
+`pip install freeaiagent` ships a synchronous `Client` with full server parity and zero HTTP boilerplate. Streaming and downloads are plain iterators — no `async`.
+
+```python
+from freeaiagent import Client
+
+# name → X-Caller-ID, so this app gets its own context thread.
+# auto_start=True launches the server if it isn't already running.
+agent = Client(name="my-app", auto_start=True)
+
+# Chat (context preserved per session)
+print(agent.chat("hello"))
+print(agent.chat("write a tagline", session="marketing", model="qwen2.5-7b"))
+
+# Stream tokens
+for token in agent.stream("write a haiku about caching"):
+    print(token, end="", flush=True)
+
+# One-shot task (no shared context)
+print(agent.task("summarize concisely", input=long_text))
+
+# Download a model with live progress (for a real progress bar in your UI)
+for p in agent.pull("qwen2.5-7b"):
+    if p.type == "progress":
+        print(f"[{p.phase}] {p.pct:.0f}%  {p.downloaded_mb:.0f}/{p.total_mb:.0f} MB")
+    elif p.type == "done":
+        print("Saved to", p.path)
+
+# Namespaced management — mirrors the CLI
+agent.models.catalog()        # downloadable models, each flagged installed
+agent.models.installed()      # local files on disk
+agent.sessions.list()
+agent.context.get(session="marketing")
+agent.config.set("default_backend", "groq")
+agent.tools.register("get_weather", description="Weather for a city",
+                     endpoint="http://localhost:9000/weather",
+                     parameters={"type": "object", "properties": {"city": {"type": "string"}}})
+
+agent.is_running()            # fast health check
+```
+
+The client auto-discovers the running port via `~/.freeaiagent/server.json`, so apps survive port changes with no config. Errors are typed: `ServerNotRunning`, `BackendUnavailable`, `DownloadInProgress`.
+
+Install once so it's always up and use `Client(auto_start=False)`:
+
+```bash
+freeaiagent install          # auto-start at login (no admin); Linux/macOS/Windows
+freeaiagent service status
+freeaiagent uninstall
+```
+
+### Drop-in OpenAI API
+
+freeaiagent speaks the OpenAI wire protocol, so anything built on the OpenAI SDK, LangChain, or LlamaIndex works unchanged — just point `base_url` at it:
+
+```python
+from openai import OpenAI
+llm = OpenAI(base_url="http://localhost:7731/v1", api_key="none")
+llm.chat.completions.create(model="qwen2.5-7b", messages=[{"role": "user", "content": "hi"}])
+```
+
+### Raw HTTP
+
+If you'd rather not add a dependency, call the endpoints directly.
+
 **Python (stdlib only):**
 ```python
 import urllib.request, json
@@ -685,6 +782,10 @@ curl -X DELETE "http://localhost:7731/sessions/work"  # also deletes session rec
 - Streaming responses (`/chat/stream` SSE)
 - Tool use / function calling (`/tools`, `tools=true`)
 - Chat web UI at `localhost:7731/ui`
+- Python SDK (`freeaiagent.Client`) with live `pull` progress and port auto-discovery
+- Server-side streaming downloads (`/pull/stream`), model/config management endpoints
+- OpenAI-compatible `/v1/chat/completions` + `/v1/models` proxy
+- Auto-start service install (`freeaiagent install`) on Linux/macOS/Windows
 
 **Planned**
 - Ensemble inference (fan out the same query to multiple models, pick the best output)
