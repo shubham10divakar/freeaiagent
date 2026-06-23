@@ -18,13 +18,16 @@ Built on free LLM backends:
 
 Plus **streaming**, **tool/function calling**, and **per-app sessions** out of the box.
 
+Call it from Python with the built-in **`Client` SDK** (one import, live download progress, no HTTP boilerplate), or point any **OpenAI SDK / LangChain / LlamaIndex** client at its drop-in `/v1` endpoint. Install it as an **auto-start service** so it's always available.
+
 ## Architecture
 
 ![freeaiagent architecture](docs/architecture.svg)
 
-Your apps talk to one local HTTP service. freeaiagent owns model routing, persistent
-context, the automatic fallback chain, and tool calls — so no app needs any LLM code,
-keys, or model management of its own.
+Your apps talk to one local HTTP service — over plain HTTP, the Python `Client` SDK,
+or the OpenAI-compatible `/v1` API. freeaiagent owns model routing, persistent context,
+the automatic fallback chain, and tool calls — so no app needs any LLM code, keys, or
+model management of its own.
 
 <details>
 <summary>Same diagram as text (Mermaid)</summary>
@@ -33,14 +36,14 @@ keys, or model management of its own.
 flowchart TD
     subgraph apps["YOUR APPS"]
         A1["Web app<br/>Flask / Django / FastAPI"]
-        A2["Python script<br/>jobs, automation"]
-        A3["CLI / cron job"]
+        A2["Python app<br/>freeaiagent.Client SDK"]
+        A3["OpenAI SDK / LangChain<br/>→ /v1 endpoint"]
         A4["Browser<br/>built-in Chat UI /ui"]
     end
 
-    apps -->|"plain JSON over HTTP"| API
+    apps -->|"HTTP · SDK · OpenAI /v1"| API
 
-    API["HTTP API · localhost:7731<br/>/chat · /task · /chat/stream · /tools · /sessions · /context"]
+    API["HTTP API · localhost:7731<br/>/chat · /task · /chat/stream · /tools · /sessions<br/>/pull/stream · /models · /config · /v1/chat/completions"]
 
     API --> CORE
 
@@ -323,6 +326,10 @@ freeaiagent config show                    # print current config
 freeaiagent config set default_model mistral:7b
 freeaiagent config set default_backend groq
 freeaiagent config set backends.groq.api_key gsk_...
+
+freeaiagent install                        # auto-start at login (no admin)
+freeaiagent service status                 # is the auto-start service installed?
+freeaiagent uninstall                      # remove the auto-start service
 ```
 
 ---
