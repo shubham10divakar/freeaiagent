@@ -23,6 +23,30 @@
 | 5 | Port lock file (`~/.freeaiagent/server.json`) — auto-discovery for SDK | **Done** |
 | 5 | OpenAI-compatible `/v1/chat/completions` proxy endpoint | **Done** |
 | 5 | System service install (`freeaiagent install` / `freeaiagent uninstall`) | **Done** |
+| 5 | PyPI publish (v1.2.0) | Built — pending upload |
+
+> **v1.2.0** is built and validated (`dist/`, `twine check` passed) but not yet
+> uploaded to PyPI or tagged. 210 tests pass. Phases 1–5 complete.
+
+---
+
+## Phase 6 — What's Next
+
+Phases 1–5 are done. Candidates for the next cycle, roughly in priority order:
+
+| # | Item | Why now | Effort |
+|---|---|---|---|
+| 1 | **Publish v1.2.0** — `twine upload`, tag `v1.2.0`, GitHub release | The SDK is the whole point of Phase 5; nothing ships value until it's on PyPI | XS |
+| 2 | **Wire Magpie onto the SDK** — replace its raw HTTP calls with `Client(name="magpie", auto_start=True)` | The origin use case; proves the SDK end-to-end and surfaces real gaps | S |
+| 3 | **`freeaiagent rm <model>`** + reuse `/models/installed` to free disk | Pulls accumulate multi-GB files with no delete path today | S |
+| 4 | **Download integrity** — SHA256 verify after `pull`, resume `.part` files | Big downloads over flaky links silently corrupt; only `.part` rename guards now | M |
+| 5 | **Per-backend context limits** (Phase 2 Context below) | Single global `max_messages` doesn't fit 8k vs 128k models | M |
+| 6 | **Summarization context strategy** (Phase 3 Context below) | Long research sessions lose early context under the sliding window | M |
+| 7 | **Ensemble inference** (design below) | Higher answer quality for high-stakes one-shot tasks | L |
+| 8 | **In-process engine option** (`llama-cpp-python`) | Avoids the subprocess/llamafile hop for users who want a pure-Python path | L |
+
+Design details for the context strategies and ensemble inference are in the
+sections below; the rest are scoped enough to pick up directly.
 
 ---
 
