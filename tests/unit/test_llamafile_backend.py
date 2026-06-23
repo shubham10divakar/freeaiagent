@@ -217,7 +217,7 @@ def test_download_fetches_engine_then_model_for_gguf(tmp_path, monkeypatch):
     backend = LlamafileBackend(model="qwen2.5-7b")
     calls = []
 
-    def fake_dl(url, dest, force=False, make_exec=False):
+    def fake_dl(url, dest, force=False, make_exec=False, on_chunk=None, phase="model"):
         calls.append(url)
         return dest
 
@@ -228,3 +228,82 @@ def test_download_fetches_engine_then_model_for_gguf(tmp_path, monkeypatch):
 
     assert calls[0] == lf.ENGINE_URL          # engine fetched first
     assert calls[1].endswith(".gguf")         # then the model weights
+
+
+# ── Download progress callback (Phase 5 Step 1) ──────────────────────────────
+
+@pytest.mark.unit
+def test_download_file_invokes_on_chunk_with_phase(tmp_path):
+    backend = LlamafileBackend(model="llama-3.2-3b")
+    dest = tmp_path / "model.bin"
+
+    class FakeResp:
+        headers = {"Content-Length": "3"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def __init__(self):
+            self._chunks = [b"a", b"b", b"c"]
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    events = []
+    with patch("freeaiagent.backends.llamafile.urllib.request.urlopen", return_value=FakeResp()):
+        backend._download_file(
+            "http://x/model.bin", dest,
+            on_chunk=lambda d, t, p: events.append((d, t, p)),
+            phase="model",
+        )
+
+    assert events == [(1, 3, "model"), (2, 3, "model"), (3, 3, "model")]
+    assert dest.exists()
+
+
+@pytest.mark.unit
+def test_download_file_falls_back_to_print_progress_without_callback(tmp_path):
+    backend = LlamafileBackend(model="llama-3.2-3b")
+    dest = tmp_path / "model.bin"
+
+    class FakeResp:
+        headers = {"Content-Length": "1"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def __init__(self):
+            self._chunks = [b"a"]
+
+        def read(self, _n):
+            return self._chunks.pop(0) if self._chunks else b""
+
+    with (
+        patch("freeaiagent.backends.llamafile.urllib.request.urlopen", return_value=FakeResp()),
+        patch.object(backend, "_print_progress") as mock_print,
+    ):
+        backend._download_file("http://x/model.bin", dest)
+
+    mock_print.assert_called_once_with(1, 1)
+
+
+@pytest.mark.unit
+def test_download_threads_callback_through_engine_and_model_phases(tmp_path, monkeypatch):
+    backend = LlamafileBackend(model="qwen2.5-7b")
+    phases = []
+
+    def fake_dl(url, dest, force=False, make_exec=False, on_chunk=None, phase="model"):
+        phases.append(phase)
+        return dest
+
+    monkeypatch.setattr(backend, "_download_file", fake_dl)
+    monkeypatch.setattr(backend, "_engine_path", lambda: tmp_path / "engine-missing")
+    backend.download(on_chunk=lambda d, t, p: None)
+
+    assert phases == ["engine", "model"]
