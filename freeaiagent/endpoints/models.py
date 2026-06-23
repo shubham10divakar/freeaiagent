@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .. import catalog, pull as pull_mod
+from ..backends.llamafile import LlamafileBackend, LLAMAFILE_DIR, MODELS_DIR
 from ..config import load as load_config
 
 api = APIRouter(tags=["models"])
@@ -20,6 +21,49 @@ _download_lock = threading.Lock()
 class PullRequest(BaseModel):
     model: Optional[str] = None   # catalog name, hf:<repo>/<file>, or URL; None = default
     force: bool = False
+
+
+@api.get("/models/catalog")
+async def models_catalog():
+    """List the curated local-model catalog, each flagged installed or not.
+
+    Lets the SDK render a downloadable-models picker without knowing where
+    ``~/.freeaiagent/`` lives or how installed-ness is determined.
+    """
+    port = load_config().get("backends", {}).get("llamafile", {}).get("port", 8080)
+    out = []
+    for name, e in catalog.all_entries():
+        backend = LlamafileBackend(port=port, model=name)
+        out.append({
+            "name": name,
+            "display": e["display"],
+            "kind": e.get("kind", "llamafile"),
+            "size_gb": e["size_gb"],
+            "min_ram_gb": e["min_ram_gb"],
+            "tier": e["tier"],
+            "description": e["description"],
+            "installed": backend._installed(),
+        })
+    return {"models": out}
+
+
+@api.get("/models/installed")
+async def models_installed():
+    """List local model files actually present on disk, with paths and sizes."""
+    out = []
+    for directory, kind in ((LLAMAFILE_DIR, "llamafile"), (MODELS_DIR, "gguf")):
+        if not directory.exists():
+            continue
+        for f in sorted(directory.iterdir()):
+            if not f.is_file() or f.name.endswith(".part"):
+                continue
+            out.append({
+                "name": f.name,
+                "path": str(f),
+                "size_mb": round(f.stat().st_size / (1024 * 1024), 1),
+                "kind": kind,
+            })
+    return {"models": out}
 
 
 @api.post("/pull/stream")
