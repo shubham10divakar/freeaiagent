@@ -13,8 +13,10 @@ app = typer.Typer(
 )
 context_app = typer.Typer(help="Manage conversation context.")
 config_app = typer.Typer(help="Read and update configuration.")
+service_app = typer.Typer(help="Inspect the installed system service.")
 app.add_typer(context_app, name="context")
 app.add_typer(config_app, name="config")
+app.add_typer(service_app, name="service")
 
 _SETUP_GUIDE = """
 No LLM backend available. Get a free key or run locally:
@@ -452,3 +454,44 @@ def config_set(
 def config_show():
     """Print the current configuration (API keys are shown in full — keep safe)."""
     typer.echo(json.dumps(load(), indent=2))
+
+
+# ---------------------------------------------------------------------------
+# install / uninstall / service
+# ---------------------------------------------------------------------------
+
+@app.command()
+def install():
+    """Install freeaiagent to start automatically at login (no admin needed).
+
+    Linux uses a systemd user unit, macOS a launchd agent, Windows an HKCU
+    Run entry. Afterwards the agent is always available — apps can use
+    Client(auto_start=False).
+    """
+    from . import service
+    try:
+        service.install()
+    except Exception as e:
+        typer.echo(f"Install failed: {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo("Installed. freeaiagent will start automatically on login.")
+    typer.echo("Check status with: freeaiagent service status")
+
+
+@app.command()
+def uninstall():
+    """Remove the auto-start service installed by `freeaiagent install`."""
+    from . import service
+    try:
+        service.uninstall()
+    except Exception as e:
+        typer.echo(f"Uninstall failed: {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo("Uninstalled. freeaiagent will no longer start automatically.")
+
+
+@service_app.command("status")
+def service_status():
+    """Show whether the auto-start service is installed/running."""
+    from . import service
+    typer.echo(f"Service: {service.status()}")
