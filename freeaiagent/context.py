@@ -93,6 +93,45 @@ def as_llm_messages(session_id: str = "default", max_messages: int = 0) -> List[
     return msgs
 
 
+def oldest_messages(session_id: str, n: int) -> List[Dict]:
+    """The oldest ``n`` messages (with their ids) for a session, in order."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY id LIMIT ?",
+            (session_id, n),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def replace_with_summary(session_id: str, ids: List[int], summary: str) -> None:
+    """Replace messages ``ids`` with a single system summary in their place.
+
+    The summary reuses the smallest replaced id so it sorts *before* the
+    messages that remain (ordering is by ``id``), keeping the compressed memory
+    at the head of the conversation.
+    """
+    if not ids:
+        return
+    min_id = min(ids)
+    ts = datetime.now(timezone.utc).isoformat()
+    placeholders = ",".join("?" for _ in ids)
+    with _conn() as conn:
+        conn.execute(
+            f"DELETE FROM messages WHERE session_id = ? AND id IN ({placeholders})",
+            (session_id, *ids),
+        )
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (min_id, session_id, "system", summary, ts),
+        )
+        conn.execute(
+            "UPDATE sessions SET message_count = "
+            "(SELECT COUNT(*) FROM messages WHERE session_id = ?) WHERE id = ?",
+            (session_id, session_id),
+        )
+        conn.commit()
+
+
 def clear(session_id: str = "default") -> int:
     with _conn() as conn:
         n = conn.execute(

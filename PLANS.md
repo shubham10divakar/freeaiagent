@@ -41,7 +41,7 @@ Phases 1–5 are done. Candidates for the next cycle, roughly in priority order:
 | 3 | **`freeaiagent rm <model>`** + reuse `/models/installed` to free disk — **Done** (`installed.py` shared helper; CLI `rm`, `DELETE /models/installed/{name}`, SDK `models.rm()`) | Pulls accumulate multi-GB files with no delete path today | S |
 | 4 | **Download integrity** — SHA256 verify after `pull`, resume `.part` files — **Done** (HTTP Range resume; partials kept on network error; opt-in `sha256` catalog key verified post-download) | Big downloads over flaky links silently corrupt; only `.part` rename guards now | M |
 | 5 | **Per-backend context limits** (Phase 2 Context below) — **Done** (`router.resolve` returns `(backend, model, max_messages)`; order: per-call `max_messages` → `backends.<name>.max_messages` → global) | Single global `max_messages` doesn't fit 8k vs 128k models | M |
-| 6 | **Summarization context strategy** (Phase 3 Context below) | Long research sessions lose early context under the sliding window | M |
+| 6 | **Summarization context strategy** (Phase 3 Context below) — **Done** (`summarize.py`; `context_strategy=summarize` folds oldest `summarize_batch` into a system memory block past `summarize_threshold`; summary reuses min id to stay at head) | Long research sessions lose early context under the sliding window | M |
 | 7 | **Ensemble inference** (design below) | Higher answer quality for high-stakes one-shot tasks | L |
 | 8 | **In-process engine option** (`llama-cpp-python`) | Avoids the subprocess/llamafile hop for users who want a pure-Python path | L |
 

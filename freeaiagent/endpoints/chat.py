@@ -3,10 +3,23 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-from .. import context, router, tools as tool_registry
+from .. import context, router, summarize, tools as tool_registry
 from ..caller import resolve_session, CALLER_HEADER
+from ..config import load as load_config
 
 api = APIRouter(tags=["chat"])
+
+
+async def _apply_context_strategy(backend, model: str, session_id: str) -> None:
+    """Run the configured context strategy (currently: optional summarization)."""
+    cfg = load_config()
+    if cfg.get("context_strategy") == "summarize":
+        await summarize.maybe_summarize(
+            backend, model, session_id,
+            threshold=cfg.get("summarize_threshold", 40),
+            batch=cfg.get("summarize_batch", 30),
+            summarize_model=cfg.get("summarize_model"),
+        )
 
 
 def _build_messages(req: "ChatRequest", session_id: str, max_messages: int) -> list:
@@ -49,6 +62,7 @@ async def chat(req: ChatRequest, request: Request):
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    await _apply_context_strategy(backend, model, session_id)
     messages = _build_messages(req, session_id, max_messages)
     context.append("user", req.message, session_id=session_id)
 
@@ -94,6 +108,7 @@ async def chat_stream(req: ChatRequest, request: Request):
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    await _apply_context_strategy(backend, model, session_id)
     messages = _build_messages(req, session_id, max_messages)
     context.append("user", req.message, session_id=session_id)
 

@@ -15,6 +15,12 @@ DEFAULTS: dict = {
     # Per-backend override: backends.<name>.max_messages takes precedence over
     # this global value (e.g. a short window for an 8k model, long for 128k).
     # A per-call "max_messages" on /chat overrides both. See router._max_messages.
+    # Context strategy: "sliding" (default; trim to max_messages) or "summarize"
+    # (compress the oldest messages into a system memory block once history grows).
+    "context_strategy": "sliding",
+    "summarize_threshold": 40,   # summarize once a session exceeds this many messages
+    "summarize_batch": 30,       # how many of the oldest messages to fold into one summary
+    "summarize_model": None,     # model for the summary call; None = use the chat model
     "backends": {
         # Local backend: run `freeaiagent pull` once (~2.3 GB), then it starts automatically.
         # Set auto_download=true to fetch on first request instead of via `pull`.

@@ -110,6 +110,30 @@ def test_chat_respects_max_messages_window(isolated_config, isolated_db, patched
 
 
 @pytest.mark.integration
+def test_chat_summarize_strategy_compresses_history(isolated_config, isolated_db, patched_router):
+    from freeaiagent import config as cfg, context
+    from freeaiagent.summarize import SUMMARY_PREFIX
+
+    cfg.set_value("context_strategy", "summarize")
+    cfg.set_value("summarize_threshold", 2)
+    cfg.set_value("summarize_batch", 2)
+
+    for i in range(2):
+        context.append("user", f"u{i}", session_id="default")
+        context.append("assistant", f"a{i}", session_id="default")
+
+    from freeaiagent.main import app
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        r = c.post("/chat", json={"message": "new question"})
+
+    assert r.status_code == 200
+    msgs = context.all_messages(session_id="default")
+    assert msgs[0]["role"] == "system"
+    assert msgs[0]["content"].startswith(SUMMARY_PREFIX)
+
+
+@pytest.mark.integration
 def test_chat_per_call_max_messages_override(isolated_config, isolated_db, patched_router):
     # No global window set (unlimited); the per-call override should still trim.
     from freeaiagent.main import app
