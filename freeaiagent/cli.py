@@ -212,6 +212,42 @@ def pull(
 
 
 # ---------------------------------------------------------------------------
+# rm
+# ---------------------------------------------------------------------------
+
+@app.command()
+def rm(
+    model: str = typer.Argument(
+        ..., help="Catalog name (e.g. llama-3.2-3b) or an installed filename to delete."
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+):
+    """Delete a downloaded model to free disk space.
+
+    Works offline (operates on local files directly). The shared llamafile
+    engine binary is never removed. List what's installed with:
+      freeaiagent models   (or the SDK's agent.models.installed())
+    """
+    from . import installed
+
+    path = installed.resolve_path(model)
+    if path is None:
+        typer.echo(f"No installed model named '{model}'.", err=True)
+        files = installed.installed_files()
+        if files:
+            typer.echo("\nInstalled models:")
+            for f in files:
+                typer.echo(f"  {f['name']:<48} {f['size_mb']:>8.0f} MB")
+        raise typer.Exit(1)
+
+    size_mb = path.stat().st_size / (1024 * 1024)
+    if not yes:
+        typer.confirm(f"Delete {path.name} ({size_mb:.0f} MB)?", abort=True)
+    result = installed.delete(model)
+    typer.echo(f"Deleted {result['deleted']} — freed {result['freed_mb']:.0f} MB")
+
+
+# ---------------------------------------------------------------------------
 # search
 # ---------------------------------------------------------------------------
 

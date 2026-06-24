@@ -349,6 +349,14 @@ class _Models:
         """Local model files on disk (name, path, size, kind)."""
         return self._c._request("GET", "/models/installed")["models"]
 
+    def rm(self, name: str) -> dict:
+        """Delete an installed model file to free disk space.
+
+        ``name`` is a catalog name or an on-disk filename (see ``installed()``).
+        Returns ``{"deleted", "path", "freed_mb"}``.
+        """
+        return self._c._request("DELETE", f"/models/installed/{name}")
+
     def active(self) -> Optional[str]:
         """The model the active backend would currently use."""
         return self._c.health().get("default_model")

@@ -66,6 +66,36 @@ def test_models_installed_empty(client, temp_model_dirs):
     assert data == {"models": []}
 
 
+# ── DELETE /models/installed/{name} ──────────────────────────────────────────
+
+@pytest.mark.integration
+def test_delete_installed_by_filename(client, temp_model_dirs):
+    f = temp_model_dirs["models"] / "Qwen2.5-7B.gguf"
+    f.write_bytes(b"y" * (1024 * 1024))
+
+    r = client.delete("/models/installed/Qwen2.5-7B.gguf")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deleted"] == "Qwen2.5-7B.gguf"
+    assert body["freed_mb"] == 1.0
+    assert not f.exists()
+    assert client.get("/models/installed").json() == {"models": []}
+
+
+@pytest.mark.integration
+def test_delete_installed_missing_404(client, temp_model_dirs):
+    r = client.delete("/models/installed/nope.gguf")
+    assert r.status_code == 404
+
+
+@pytest.mark.integration
+def test_delete_installed_unsafe_name_rejected(client, temp_model_dirs):
+    # A name containing ".." (but no slash, so it reaches the handler as one
+    # path param) is rejected with 400 before any filesystem access.
+    r = client.delete("/models/installed/..foo")
+    assert r.status_code == 400
+
+
 # ── /config ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.integration

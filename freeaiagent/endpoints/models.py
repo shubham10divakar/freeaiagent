@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .. import catalog, pull as pull_mod
+from .. import catalog, installed as installed_mod, pull as pull_mod
 from ..backends.llamafile import LlamafileBackend, LLAMAFILE_DIR, MODELS_DIR
 from ..config import load as load_config
 
@@ -50,20 +50,24 @@ async def models_catalog():
 @api.get("/models/installed")
 async def models_installed():
     """List local model files actually present on disk, with paths and sizes."""
-    out = []
-    for directory, kind in ((LLAMAFILE_DIR, "llamafile"), (MODELS_DIR, "gguf")):
-        if not directory.exists():
-            continue
-        for f in sorted(directory.iterdir()):
-            if not f.is_file() or f.name.endswith(".part"):
-                continue
-            out.append({
-                "name": f.name,
-                "path": str(f),
-                "size_mb": round(f.stat().st_size / (1024 * 1024), 1),
-                "kind": kind,
-            })
-    return {"models": out}
+    return {"models": installed_mod.installed_files()}
+
+
+@api.delete("/models/installed/{name}")
+async def delete_installed_model(name: str):
+    """Delete a downloaded model file to free disk space.
+
+    ``name`` is a catalog name (e.g. ``llama-3.2-3b``) or an on-disk filename
+    (as listed by ``/models/installed``). The shared engine binary is never
+    removed. Returns 404 if no matching model is installed, 400 for an unsafe
+    name.
+    """
+    try:
+        return installed_mod.delete(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @api.post("/pull/stream")
