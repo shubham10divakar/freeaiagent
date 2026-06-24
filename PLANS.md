@@ -39,7 +39,7 @@ Phases 1–5 are done. Candidates for the next cycle, roughly in priority order:
 | 1 | **Publish v1.2.0** — `twine upload`, tag `v1.2.0`, GitHub release | The SDK is the whole point of Phase 5; nothing ships value until it's on PyPI | XS |
 | 2 | **Wire Magpie onto the SDK** — replace its raw HTTP calls with `Client(name="magpie", auto_start=True)` | The origin use case; proves the SDK end-to-end and surfaces real gaps | S |
 | 3 | **`freeaiagent rm <model>`** + reuse `/models/installed` to free disk — **Done** (`installed.py` shared helper; CLI `rm`, `DELETE /models/installed/{name}`, SDK `models.rm()`) | Pulls accumulate multi-GB files with no delete path today | S |
-| 4 | **Download integrity** — SHA256 verify after `pull`, resume `.part` files | Big downloads over flaky links silently corrupt; only `.part` rename guards now | M |
+| 4 | **Download integrity** — SHA256 verify after `pull`, resume `.part` files — **Done** (HTTP Range resume; partials kept on network error; opt-in `sha256` catalog key verified post-download) | Big downloads over flaky links silently corrupt; only `.part` rename guards now | M |
 | 5 | **Per-backend context limits** (Phase 2 Context below) | Single global `max_messages` doesn't fit 8k vs 128k models | M |
 | 6 | **Summarization context strategy** (Phase 3 Context below) | Long research sessions lose early context under the sliding window | M |
 | 7 | **Ensemble inference** (design below) | Higher answer quality for high-stakes one-shot tasks | L |

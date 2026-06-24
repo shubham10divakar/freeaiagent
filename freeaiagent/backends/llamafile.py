@@ -1,8 +1,10 @@
 import atexit
+import hashlib
 import platform
 import stat
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
@@ -35,6 +37,45 @@ DEFAULT_MODEL = catalog.DEFAULT_MODEL  # "llama-3.2-3b"
 DEFAULT_URL = catalog.url_for(DEFAULT_MODEL)
 
 _proc: Optional[subprocess.Popen] = None
+
+_DL_CHUNK = 1024 * 1024
+
+
+class IntegrityError(Exception):
+    """A downloaded file failed its checksum verification."""
+
+
+def _resp_total(resp, existing: int, status: int) -> int:
+    """Full content length in bytes, accounting for partial (206) responses.
+
+    For a 206 the ``Content-Length`` is only the *remaining* bytes, so the full
+    size comes from ``Content-Range: bytes start-end/total`` when present, else
+    ``existing + remaining``.
+    """
+    cr = resp.headers.get("Content-Range")
+    if status == 206 and cr and "/" in cr:
+        tail = cr.rsplit("/", 1)[-1].strip()
+        if tail.isdigit():
+            return int(tail)
+    cl = resp.headers.get("Content-Length")
+    if cl:
+        cl = int(cl)
+        return existing + cl if status == 206 else cl
+    return 0
+
+
+def _verify_sha256(path: Path, expected: str) -> None:
+    """Raise ``IntegrityError`` (and delete ``path``) if its hash doesn't match."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(_DL_CHUNK), b""):
+            h.update(block)
+    actual = h.hexdigest()
+    if actual.lower() != expected.lower():
+        path.unlink(missing_ok=True)
+        raise IntegrityError(
+            f"checksum mismatch for {path.name}: expected {expected}, got {actual}"
+        )
 
 
 def _stop() -> None:
@@ -127,9 +168,19 @@ class LlamafileBackend(BaseBackend):
                 if on_chunk is None:
                     print("First-time setup: downloading the llamafile engine (~305 MB, one-time).")
                 self._download_file(ENGINE_URL, engine, make_exec=True, on_chunk=on_chunk, phase="engine")
+        # Verify against the catalog's pinned checksum, but only when this is
+        # actually that catalog model (not a URL/hf pull that happens to share
+        # the default model name). Entries without a "sha256" skip verification.
+        entry = catalog.get(self.model)
+        expected = (
+            entry.get("sha256")
+            if entry and self.download_url == catalog.url_for(self.model)
+            else None
+        )
+        extra = {"sha256": expected} if expected else {}
         return self._download_file(
             self.download_url, self._bin(), force=force,
-            make_exec=not self._is_gguf(), on_chunk=on_chunk, phase="model",
+            make_exec=not self._is_gguf(), on_chunk=on_chunk, phase="model", **extra,
         )
 
     def _download_file(
@@ -140,32 +191,74 @@ class LlamafileBackend(BaseBackend):
         make_exec: bool = False,
         on_chunk: Optional[ProgressCallback] = None,
         phase: str = "model",
+        sha256: Optional[str] = None,
     ) -> Path:
+        """Download ``url`` to ``dest``, resuming a partial ``.part`` if present.
+
+        A transient/network error leaves the ``.part`` on disk so the next call
+        resumes via an HTTP Range request. When ``sha256`` is given the completed
+        file is verified before being moved into place; a mismatch deletes it and
+        raises ``IntegrityError``.
+        """
         if dest.exists() and not force:
             return dest
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.parent / (dest.name + ".part")
-        try:
-            with urllib.request.urlopen(url) as resp:
-                total = int(resp.headers.get("Content-Length", 0))
-                done = 0
-                with open(tmp, "wb") as f:
-                    while chunk := resp.read(1024 * 1024):
-                        f.write(chunk)
-                        done += len(chunk)
-                        if on_chunk is not None:
-                            on_chunk(done, total, phase)
-                        elif total:
-                            self._print_progress(done, total)
-            tmp.rename(dest)
-            if on_chunk is None:
-                print("\n  Download complete.\n")
-            if make_exec and platform.system() != "Windows":
-                dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-        except Exception:
+        if force:
             tmp.unlink(missing_ok=True)
-            raise
+
+        existing = tmp.stat().st_size if tmp.exists() else 0
+        # If this raises, the .part is intentionally kept for a later resume.
+        self._stream_to_file(url, tmp, existing, on_chunk, phase)
+
+        if sha256:
+            _verify_sha256(tmp, sha256)   # deletes tmp + raises on mismatch
+        tmp.replace(dest)                 # atomic, overwrites on force
+        if on_chunk is None:
+            print("\n  Download complete.\n")
+        if make_exec and platform.system() != "Windows":
+            dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         return dest
+
+    def _stream_to_file(
+        self,
+        url: str,
+        tmp: Path,
+        existing: int,
+        on_chunk: Optional[ProgressCallback],
+        phase: str,
+    ) -> None:
+        """Stream ``url`` into ``tmp``, resuming from ``existing`` bytes if > 0."""
+        req = urllib.request.Request(url)
+        if existing:
+            req.add_header("Range", f"bytes={existing}-")
+        try:
+            resp = urllib.request.urlopen(req)
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and existing:   # .part already >= full file; restart
+                tmp.unlink(missing_ok=True)
+                return self._stream_to_file(url, tmp, 0, on_chunk, phase)
+            raise
+
+        with resp:
+            status = getattr(resp, "status", None) or getattr(resp, "code", None) or 200
+            resuming = bool(existing) and status == 206
+            if existing and not resuming:
+                # Server ignored Range (sent 200) — discard the partial, start over.
+                tmp.unlink(missing_ok=True)
+                existing = 0
+            total = _resp_total(resp, existing, status)
+            done = existing
+            with open(tmp, "ab" if resuming else "wb") as f:
+                if on_chunk is not None and existing:
+                    on_chunk(done, total, phase)   # report the resume baseline
+                while chunk := resp.read(_DL_CHUNK):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if on_chunk is not None:
+                        on_chunk(done, total, phase)
+                    elif total:
+                        self._print_progress(done, total)
 
     @staticmethod
     def _print_progress(done: int, total: int) -> None:

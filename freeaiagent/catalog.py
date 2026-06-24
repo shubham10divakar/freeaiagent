@@ -20,6 +20,11 @@ _BK = "https://huggingface.co/bartowski"    # external GGUF weights
 #   "gguf"      — external weights run via the downloaded llamafile *engine*
 #                 binary; no 4 GB cap, so 7B+ models work everywhere.
 # All URLs verified to exist.
+#
+# Optional per-entry key:
+#   "sha256"    — hex digest of the downloaded artifact. When present, `pull`
+#                 verifies the file after download and deletes it on mismatch.
+#                 Omitted entries simply skip verification (back-compatible).
 CATALOG: dict[str, dict] = {
     "llama-3.2-1b": {
         "display": "Llama 3.2 1B Instruct",
