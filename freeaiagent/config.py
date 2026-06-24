@@ -25,6 +25,9 @@ DEFAULTS: dict = {
         # Local backend: run `freeaiagent pull` once (~2.3 GB), then it starts automatically.
         # Set auto_download=true to fetch on first request instead of via `pull`.
         "llamafile": {"type": "llamafile", "port": 8080, "auto_download": False},
+        # In-process GGUF (no subprocess). Needs: pip install freeaiagent[llama-cpp]
+        # plus a pulled GGUF model. Inert until both are present.
+        "llama_cpp": {"type": "llama_cpp", "n_ctx": 4096, "n_gpu_layers": 0},
         # Ollama: install from https://ollama.com, then: ollama pull llama3.2:3b
         "ollama":    {"base_url": "http://localhost:11434"},
         # Groq: free API key at https://console.groq.com

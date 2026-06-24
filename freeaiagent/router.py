@@ -2,6 +2,7 @@ from typing import List, Tuple
 from .config import load
 from .backends.base import BaseBackend
 from .backends.llamafile import LlamafileBackend
+from .backends.llama_cpp import LlamaCppBackend
 from . import catalog
 from .backends.ollama import OllamaBackend
 from .backends.groq import GroqBackend
@@ -20,6 +21,13 @@ def _build_backends(config: dict) -> dict[str, BaseBackend]:
                 download_url=bcfg.get("download_url"),
                 auto_download=bcfg.get("auto_download", False),
                 auto_start=bcfg.get("auto_start", True),
+            )
+        elif btype == "llama_cpp":
+            backends[name] = LlamaCppBackend(
+                model=config.get("default_model", catalog.DEFAULT_MODEL),
+                model_path=bcfg.get("model_path"),
+                n_ctx=bcfg.get("n_ctx", 4096),
+                n_gpu_layers=bcfg.get("n_gpu_layers", 0),
             )
         elif btype == "ollama":
             backends[name] = OllamaBackend(
