@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from typing import Optional
 from .. import context, router, tools as tool_registry
 from ..caller import resolve_session, CALLER_HEADER
-from ..config import load as load_config
 
 api = APIRouter(tags=["chat"])
 
@@ -26,6 +25,7 @@ class ChatRequest(BaseModel):
     backend: Optional[str] = None
     session_id: str = "default"
     tools: bool = False  # let the model call registered tools mid-conversation
+    max_messages: Optional[int] = None  # per-call context window override
 
 
 @api.post("/chat")
@@ -39,18 +39,18 @@ async def chat(req: ChatRequest, request: Request):
     Optionally override the model or backend for this single message.
     """
     session_id = resolve_session(req.session_id, request.headers.get(CALLER_HEADER))
-    max_messages = load_config().get("max_messages", 0)
-
-    messages = _build_messages(req, session_id, max_messages)
-    context.append("user", req.message, session_id=session_id)
 
     try:
-        backend, model = await router.resolve(
+        backend, model, max_messages = await router.resolve(
             override_model=req.model,
             override_backend=req.backend,
+            override_max_messages=req.max_messages,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+    messages = _build_messages(req, session_id, max_messages)
+    context.append("user", req.message, session_id=session_id)
 
     if req.tools and tool_registry.all_tools():
         response = await tool_registry.run(backend, model, messages)
@@ -84,18 +84,18 @@ async def chat_stream(req: ChatRequest, request: Request):
     The full response is persisted to the session once streaming completes.
     """
     session_id = resolve_session(req.session_id, request.headers.get(CALLER_HEADER))
-    max_messages = load_config().get("max_messages", 0)
-
-    messages = _build_messages(req, session_id, max_messages)
-    context.append("user", req.message, session_id=session_id)
 
     try:
-        backend, model = await router.resolve(
+        backend, model, max_messages = await router.resolve(
             override_model=req.model,
             override_backend=req.backend,
+            override_max_messages=req.max_messages,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+    messages = _build_messages(req, session_id, max_messages)
+    context.append("user", req.message, session_id=session_id)
 
     async def event_stream():
         parts: list[str] = []

@@ -11,7 +11,10 @@ DEFAULTS: dict = {
     "default_backend": "llamafile",
     "default_model": "llama-3.2-3b",  # catalog name; see `freeaiagent models --available`
     "port": 7731,
-    "max_messages": 0,  # 0 = unlimited; set to e.g. 20 to keep last 20 messages
+    "max_messages": 0,  # 0 = unlimited; set to e.g. 20 to keep last 20 messages.
+    # Per-backend override: backends.<name>.max_messages takes precedence over
+    # this global value (e.g. a short window for an 8k model, long for 128k).
+    # A per-call "max_messages" on /chat overrides both. See router._max_messages.
     "backends": {
         # Local backend: run `freeaiagent pull` once (~2.3 GB), then it starts automatically.
         # Set auto_download=true to fetch on first request instead of via `pull`.

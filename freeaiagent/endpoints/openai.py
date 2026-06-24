@@ -65,7 +65,7 @@ async def chat_completions(req: ChatCompletionRequest):
     """OpenAI-compatible chat completions, with optional streaming."""
     messages = [{"role": m.role, "content": m.content or ""} for m in req.messages]
     try:
-        backend, model = await llm_router.resolve(override_model=req.model)
+        backend, model, _ = await llm_router.resolve(override_model=req.model)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 

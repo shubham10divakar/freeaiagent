@@ -46,8 +46,8 @@ def test_chat_with_tools_runs_loop(isolated_config, isolated_db, isolated_tools,
 
     fake = FakeToolBackend()
 
-    async def _resolve(override_model=None, override_backend=None):
-        return fake, "test-model"
+    async def _resolve(override_model=None, override_backend=None, override_max_messages=None):
+        return fake, "test-model", 0
 
     async def _fake_exec(name, args):
         return "SUNNY"
@@ -77,8 +77,8 @@ def test_chat_without_tools_flag_ignores_registry(isolated_config, isolated_db, 
         async def chat_completion(self, messages, model, tools=None):
             raise AssertionError("chat_completion should not be called when tools=false")
 
-    async def _resolve(override_model=None, override_backend=None):
-        return Backend(), "test-model"
+    async def _resolve(override_model=None, override_backend=None, override_max_messages=None):
+        return Backend(), "test-model", 0
 
     monkeypatch.setattr("freeaiagent.router.resolve", _resolve)
 

@@ -107,3 +107,17 @@ def test_chat_respects_max_messages_window(isolated_config, isolated_db, patched
     last_call_messages = patched_router.chat.call_args[0][0]
     # with window=2, only last 2 stored messages sent; total sent = 2 + current = 3
     assert len(last_call_messages) <= 3
+
+
+@pytest.mark.integration
+def test_chat_per_call_max_messages_override(isolated_config, isolated_db, patched_router):
+    # No global window set (unlimited); the per-call override should still trim.
+    from freeaiagent.main import app
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        c.post("/chat", json={"message": "turn one"})
+        c.post("/chat", json={"message": "turn two"})
+        c.post("/chat", json={"message": "turn three", "max_messages": 2})
+
+    last_call_messages = patched_router.chat.call_args[0][0]
+    assert len(last_call_messages) <= 3

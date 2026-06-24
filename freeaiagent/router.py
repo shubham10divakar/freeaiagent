@@ -42,11 +42,30 @@ def _build_backends(config: dict) -> dict[str, BaseBackend]:
     return backends
 
 
+def _max_messages(config: dict, backend_name: str, override: int | None) -> int:
+    """Effective context window: per-call override → backend-level → global.
+
+    A backend-level ``max_messages`` lets an 8k-context model keep a short
+    window while a 128k model keeps a long one, under one config.
+    """
+    if override is not None:
+        return override
+    bcfg = config.get("backends", {}).get(backend_name, {})
+    if isinstance(bcfg, dict) and "max_messages" in bcfg:
+        return bcfg["max_messages"]
+    return config.get("max_messages", 0)
+
+
 async def resolve(
     override_model: str | None = None,
     override_backend: str | None = None,
-) -> Tuple[BaseBackend, str]:
-    """Return (backend, model), respecting per-call overrides then config defaults."""
+    override_max_messages: int | None = None,
+) -> Tuple[BaseBackend, str, int]:
+    """Return ``(backend, model, max_messages)``.
+
+    Respects per-call overrides, then config defaults. ``max_messages`` is the
+    effective context window for the chosen backend (see ``_max_messages``).
+    """
     config = load()
     backends = _build_backends(config)
     model = override_model or config.get("default_model", "llama3.2:3b")
@@ -63,7 +82,7 @@ async def resolve(
             raise RuntimeError(
                 f"Backend '{override_backend}' is configured but not reachable."
             )
-        return backend, model
+        return backend, model, _max_messages(config, override_backend, override_max_messages)
 
     # normal fallback chain
     default_backend = config.get("default_backend", "ollama")
@@ -73,7 +92,7 @@ async def resolve(
     for name in ordered:
         backend = backends.get(name)
         if backend and await backend.is_available():
-            return backend, model
+            return backend, model, _max_messages(config, name, override_max_messages)
 
     tried = ", ".join(ordered)
     raise RuntimeError(

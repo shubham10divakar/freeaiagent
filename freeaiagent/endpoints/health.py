@@ -11,7 +11,7 @@ async def health():
     """Check server health and active backend."""
     config = load()
     try:
-        backend, model = await llm_router.resolve()
+        backend, model, _ = await llm_router.resolve()
         return {
             "status": "ok",
             "active_backend": config.get("default_backend"),

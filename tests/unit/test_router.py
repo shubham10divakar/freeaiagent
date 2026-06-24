@@ -41,7 +41,7 @@ async def test_resolve_returns_default_backend(isolated_config, monkeypatch):
         "freeaiagent.router._build_backends",
         lambda cfg: {"llamafile": llamafile},
     )
-    backend, model = await router_mod.resolve()
+    backend, model, _ = await router_mod.resolve()
     assert backend is llamafile
     assert model == "llama-3.2-3b"
 
@@ -55,7 +55,7 @@ async def test_resolve_falls_back_when_default_unavailable(isolated_config, monk
         "freeaiagent.router._build_backends",
         lambda cfg: {"ollama": ollama, "groq": groq},
     )
-    backend, model = await router_mod.resolve()
+    backend, model, _ = await router_mod.resolve()
     assert backend is groq
 
 
@@ -79,8 +79,52 @@ async def test_resolve_uses_override_model(isolated_config, monkeypatch):
         "freeaiagent.router._build_backends",
         lambda cfg: {"ollama": ollama},
     )
-    _, model = await router_mod.resolve(override_model="mistral:7b")
+    _, model, _ = await router_mod.resolve(override_model="mistral:7b")
     assert model == "mistral:7b"
+
+
+# ── per-backend context limits (_max_messages) ───────────────────────────────
+
+@pytest.mark.unit
+def test_max_messages_falls_back_to_global():
+    cfg = {"max_messages": 20, "backends": {"ollama": {}}}
+    assert router_mod._max_messages(cfg, "ollama", None) == 20
+
+
+@pytest.mark.unit
+def test_max_messages_backend_level_overrides_global():
+    cfg = {"max_messages": 20, "backends": {"ollama": {"max_messages": 50}}}
+    assert router_mod._max_messages(cfg, "ollama", None) == 50
+
+
+@pytest.mark.unit
+def test_max_messages_per_call_override_wins():
+    cfg = {"max_messages": 20, "backends": {"ollama": {"max_messages": 50}}}
+    assert router_mod._max_messages(cfg, "ollama", 5) == 5
+
+
+@pytest.mark.unit
+def test_max_messages_backend_zero_is_respected():
+    # explicit 0 (unlimited) at backend level must override a nonzero global
+    cfg = {"max_messages": 20, "backends": {"groq": {"max_messages": 0}}}
+    assert router_mod._max_messages(cfg, "groq", None) == 0
+
+
+@pytest.mark.unit
+async def test_resolve_returns_backend_level_max_messages(isolated_config, monkeypatch):
+    ollama = _make_backend(available=True)
+    monkeypatch.setattr(
+        "freeaiagent.router._build_backends",
+        lambda cfg: {"ollama": ollama},
+    )
+    monkeypatch.setattr(
+        "freeaiagent.router.load",
+        lambda: {"default_backend": "ollama", "fallback_order": ["ollama"],
+                 "default_model": "m", "max_messages": 7,
+                 "backends": {"ollama": {"max_messages": 99}}},
+    )
+    _, _, max_messages = await router_mod.resolve()
+    assert max_messages == 99
 
 
 @pytest.mark.unit
@@ -114,7 +158,7 @@ async def test_resolve_backend_override(isolated_config, monkeypatch):
         "freeaiagent.router._build_backends",
         lambda cfg: {"ollama": ollama, "groq": groq},
     )
-    backend, _ = await router_mod.resolve(override_backend="groq")
+    backend, _, _ = await router_mod.resolve(override_backend="groq")
     assert backend is groq
 
 

@@ -27,7 +27,7 @@ async def run_task(req: TaskRequest):
         {"role": "user", "content": content},
     ]
     try:
-        backend, model = await router.resolve(override_model=req.model)
+        backend, model, _ = await router.resolve(override_model=req.model)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     result = await backend.chat(messages, model)
