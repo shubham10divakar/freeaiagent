@@ -43,6 +43,15 @@ DEFAULTS: dict = {
         # "lmstudio":  {"type": "openai_compat", "base_url": "http://localhost:1234"},
     },
     "fallback_order": ["llamafile", "ollama", "groq"],
+    # Ensemble inference: fan a prompt out to several models and judge the best.
+    # Opt in per call (`"ensemble": true` or a model list on /chat) or globally
+    # via enabled=true. Models must be servable by the active backend.
+    "ensemble": {
+        "enabled": False,
+        "models": [],            # e.g. ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        "judge": None,           # model for llm_judge; None = first ensemble model
+        "strategy": "llm_judge",  # "llm_judge" | "longest" | "majority"
+    },
 }
 
 

@@ -2,8 +2,8 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
-from .. import context, router, summarize, tools as tool_registry
+from typing import List, Optional, Union
+from .. import context, ensemble, router, summarize, tools as tool_registry
 from ..caller import resolve_session, CALLER_HEADER
 from ..config import load as load_config
 
@@ -39,6 +39,9 @@ class ChatRequest(BaseModel):
     session_id: str = "default"
     tools: bool = False  # let the model call registered tools mid-conversation
     max_messages: Optional[int] = None  # per-call context window override
+    # Ensemble: true = use config models; a list = use those models; null = off
+    # (unless config ensemble.enabled). Needs >= 2 models or it's a normal chat.
+    ensemble: Optional[Union[bool, List[str]]] = None
 
 
 @api.post("/chat")
@@ -66,7 +69,17 @@ async def chat(req: ChatRequest, request: Request):
     messages = _build_messages(req, session_id, max_messages)
     context.append("user", req.message, session_id=session_id)
 
-    if req.tools and tool_registry.all_tools():
+    cfg = load_config()
+    ensemble_models = ensemble.resolve_models(req.ensemble, cfg)
+    votes = None
+    if len(ensemble_models) >= 2:
+        ecfg = cfg.get("ensemble", {})
+        response, model, votes = await ensemble.run(
+            backend, messages, ensemble_models,
+            judge_model=ecfg.get("judge"),
+            strategy=ecfg.get("strategy", "llm_judge"),
+        )
+    elif req.tools and tool_registry.all_tools():
         response = await tool_registry.run(backend, model, messages)
     else:
         response = await backend.chat(messages, model)
@@ -78,13 +91,16 @@ async def chat(req: ChatRequest, request: Request):
         backend=type(backend).__name__,
     )
 
-    return {
+    result = {
         "response": response,
         "model": model,
         "backend": type(backend).__name__,
         "session_id": session_id,
         "context_length": context.count(session_id=session_id),
     }
+    if votes is not None:
+        result["ensemble_votes"] = votes
+    return result
 
 
 @api.post("/chat/stream")

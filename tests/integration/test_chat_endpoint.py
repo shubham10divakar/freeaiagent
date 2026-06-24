@@ -110,6 +110,25 @@ def test_chat_respects_max_messages_window(isolated_config, isolated_db, patched
 
 
 @pytest.mark.integration
+def test_chat_ensemble_returns_votes(client):
+    r = client.post("/chat", json={"message": "hi", "ensemble": ["m1", "m2"]})
+    assert r.status_code == 200
+    data = r.json()
+    assert "ensemble_votes" in data
+    assert len(data["ensemble_votes"]) == 2
+    assert {v["model"] for v in data["ensemble_votes"]} == {"m1", "m2"}
+    assert data["response"] == "Hello from mock backend"
+
+
+@pytest.mark.integration
+def test_chat_single_ensemble_model_is_normal_chat(client):
+    # < 2 models => no ensemble, no votes key
+    r = client.post("/chat", json={"message": "hi", "ensemble": ["m1"]})
+    assert r.status_code == 200
+    assert "ensemble_votes" not in r.json()
+
+
+@pytest.mark.integration
 def test_chat_summarize_strategy_compresses_history(isolated_config, isolated_db, patched_router):
     from freeaiagent import config as cfg, context
     from freeaiagent.summarize import SUMMARY_PREFIX
