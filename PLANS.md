@@ -50,6 +50,78 @@ sections below; the rest are scoped enough to pick up directly.
 
 ---
 
+## Phase 7 — Going public ("on-device ChatGPT")
+
+The library is the foundation; the goal now is a **public, ChatGPT-like product**
+users interact with freely via **desktop, mobile, and web** — **local-first**
+(models run on the *user's* device, so inference is free and private) with an
+**optional cloud-premium** tier for weak devices / bigger models.
+
+**Origin & framing.** freeaiagent exists because cloud-API token/cost limits
+pushed toward running models on the user's own phone/PC. So the product doubles
+down on that: privacy + free + offline is the pitch — **not** "smarter than
+ChatGPT." Honest capability ceiling: phones ~1–3B, PCs 7–14B.
+
+### Core architecture principle
+
+**freeaiagent defines the API contract; each platform is an interchangeable
+engine behind it.** Write the app UI once against the chat / OpenAI-compatible
+API; it doesn't care where inference runs. "Local + cloud" is just the existing
+fallback chain (device-local default, hosted opt-in).
+
+| Client | Engine behind the same contract |
+|---|---|
+| Desktop (Win/Mac/Linux) | freeaiagent (Python) embedded, model on disk |
+| Mobile (iOS/Android) | native llama.cpp / MLC-LLM (Python can't run on-device); small models |
+| Web (browser) | WebLLM / WebGPU, zero-install, desktop browsers |
+| Cloud (premium) | hosted freeaiagent → cloud model / GPU |
+
+> iOS forbids downloading + running executables → **llamafile won't work on
+> mobile; inference must be compiled into the app.** Distribution (packaging onto
+> devices) is the new hard problem, replacing GPU capacity.
+
+### Sequenced roadmap (each phase ships and earns the next)
+
+| # | Phase | Scope | Effort |
+|---|---|---|---|
+| 7.1 | **Desktop app + web UI** | Wrap freeaiagent in Tauri/Electron, bundle runtime, reuse `/ui`, auto-update. Purely local. **The public launch.** | M |
+| 7.2 | **Web (WebLLM)** | Zero-install in-browser inference for desktop users; same API contract | M |
+| 7.3 | **Cloud layer** | Accounts, encrypted cross-device sync, premium "cloud boost." Where auth + Postgres + tenant isolation + moderation + GPU land — **scoped to paying users only** | L |
+| 7.4 | **Mobile native** | Embedded llama.cpp/MLC on-device (small models) + cloud fallback for weak phones. Biggest lift; after traction | XL |
+
+Realistically 4 client platforms + a backend — multi-quarter, likely multi-person.
+**Desktop + web (7.1–7.2) is the real launch**; cloud and mobile are heavier
+follow-ons. Do not ship all four at once.
+
+### Security — two tracks (see also the dedicated review)
+
+**On-device (7.1 / 7.2 / 7.4):**
+- Bind **`127.0.0.1`** (today `cli.py` binds `0.0.0.0` → LAN-exposed) with an opt-in `--host`.
+- Ship a **signed + SHA256-checksummed catalog only**; no arbitrary-URL `pull` in the shipped UI (a fused llamafile is downloaded + executed = code execution on the user's machine).
+- **Strip admin endpoints** (`/config`, `/config/set`, `/pull/stream`, `DELETE /models/*`, `/tools/register`) from any exposed surface.
+- Wins: no central chat store (no honeypot / minimal GDPR for chat), no LLM API keys to leak.
+
+**Hosted cloud-premium (7.3) — full hardening, premium slice only:**
+- Real **AuthN** (user accounts / short-lived JWT); freeaiagent trusts only the gateway. `X-Caller-ID` is routing, not security.
+- **Tenant isolation**: every session/context query scoped to the authenticated `user_id` (today any caller can read any `session_id`).
+- **Postgres** context store (opt-in, behind a storage abstraction; SQLite stays the local default + WAL for light concurrency).
+- TLS at the gateway; freeaiagent + inference on a **private network**.
+- **Rate limits + token quotas**, prompt-size / `max_tokens` caps, request timeouts.
+- **Content moderation** (input/output) + usage policy + abuse logging — required for a public app.
+- **SSRF guard** on tools; config file `chmod 600`.
+
+### Inference for the cloud tier
+Do **not** use the built-in llamafile backend for serving many users (single
+subprocess, effectively serial). Run a dedicated **vLLM / TGI** server
+(continuous batching) and point freeaiagent's `openai_compat` backend at it;
+freeaiagent does orchestration, the engine does GPU batching.
+
+### Monetization
+Free = fully local. **Premium** = cloud boost (bigger models) + encrypted sync +
+priority. Cloud cost is bounded to paying users, so the economics stay clean.
+
+---
+
 ## Context Handling
 
 This is the most nuanced part of the system. Full strategy below.
