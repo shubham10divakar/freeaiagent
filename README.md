@@ -13,10 +13,11 @@ Runs as a persistent HTTP server on `localhost:7731`. Stores conversation histor
 
 Built on free LLM backends:
 - **Local, zero-install** — downloads and runs a local GGUF model for you via llamafile (no Ollama, no keys). Supports 1B–14B models.
+- **In-process (optional)** — load a GGUF straight into Python via `llama-cpp-python`, no subprocess or local server.
 - **Ollama** — local, no key, if you already use it.
 - **Free cloud tiers** — Groq, Google Gemini, OpenRouter, Together, Cerebras (bring a free API key).
 
-Plus **streaming**, **tool/function calling**, and **per-app sessions** out of the box.
+Plus **streaming**, **tool/function calling**, **per-app sessions**, **summarizing & per-backend context windows**, and **ensemble inference** out of the box.
 
 Call it from Python with the built-in **`Client` SDK** (one import, live download progress, no HTTP boilerplate), or point any **OpenAI SDK / LangChain / LlamaIndex** client at its drop-in `/v1` endpoint. Install it as an **auto-start service** so it's always available.
 
@@ -82,7 +83,7 @@ Embedding LLM logic directly into every app that needs it means duplicating prom
 pip install freeaiagent
 ```
 
-Requires Python 3.10+. That's everything — local models and all cloud presets work with no extra packages. Then either pull a local model or add a free key (below).
+Requires Python 3.10+. That's everything — local models and all cloud presets work with no extra packages. (For the optional in-process backend: `pip install "freeaiagent[llama-cpp]"`.) Then either pull a local model or add a free key (below).
 
 ```bash
 freeaiagent pull     # one-time local model download (~2.3 GB), then fully offline
@@ -206,7 +207,12 @@ freeaiagent models --available    # browse the catalog
 freeaiagent pull llama-3.2-3b          # a catalog model by name
 freeaiagent pull qwen2.5-7b            # also fetches the shared engine, once
 freeaiagent config set default_model qwen2.5-7b
+freeaiagent rm qwen2.5-7b              # delete a downloaded model to free disk
 ```
+
+Interrupted downloads **resume** automatically — re-running `pull` continues a
+partial `.part` file via an HTTP range request instead of starting over. Catalog
+entries may pin a SHA256 checksum, which is verified after download.
 
 ### Any model from HuggingFace
 Search the whole Hub for GGUF models and pull any of them — no key for public repos.
@@ -314,6 +320,7 @@ freeaiagent keys                           # show where to get free API keys
 freeaiagent pull                           # download the default local model
 freeaiagent pull qwen2.5-7b                # download a catalog model by name
 freeaiagent pull hf:owner/repo/file.gguf   # download any GGUF from HuggingFace
+freeaiagent rm qwen2.5-7b                   # delete a downloaded model (frees disk)
 freeaiagent search qwen2.5                  # find GGUF models on HuggingFace
 freeaiagent search owner/repo              # list a repo's GGUF files
 
@@ -364,6 +371,8 @@ curl -X POST http://localhost:7731/chat \
 | `model` | string | optional model override for this message |
 | `backend` | string | optional backend override for this message |
 | `tools` | bool | optional — let the model call registered tools (default `false`) |
+| `max_messages` | int | optional — context-window override for this message (see [Context strategies](#context-strategies--ensemble)) |
+| `ensemble` | bool \| string[] | optional — fan out to multiple models and judge the best (see [Ensemble](#ensemble-inference)) |
 
 **Auto sessions:** if you don't pass `session_id`, the session is taken from the
 `X-Caller-ID` request header — so an app can set one header and get its own
@@ -517,6 +526,7 @@ curl -X POST http://localhost:7731/chat \
 |---|---|
 | `GET /models/catalog` | Curated catalog with an `installed` flag per entry |
 | `GET /models/installed` | Local model files on disk (name, path, size, kind) |
+| `DELETE /models/installed/{name}` | Delete a downloaded model (catalog name or filename); frees disk |
 | `GET /config` | Effective configuration as JSON |
 | `POST /config/set` | Set a dotted key — `{"key": "default_backend", "value": "groq"}` |
 
@@ -554,8 +564,13 @@ Config lives at `~/.freeaiagent/config.json` and is created on first run.
   "default_model": "llama-3.2-3b",
   "port": 7731,
   "max_messages": 0,
+  "context_strategy": "sliding",
+  "summarize_threshold": 40,
+  "summarize_batch": 30,
+  "summarize_model": null,
   "backends": {
     "llamafile": {"type": "llamafile", "port": 8080, "auto_download": false},
+    "llama_cpp": {"type": "llama_cpp", "n_ctx": 4096, "n_gpu_layers": 0},
     "ollama":    {"base_url": "http://localhost:11434"},
     "groq":      {"api_key": ""},
     "together":   {"type": "openai_compat", "base_url": "https://api.together.xyz", "api_key": ""},
@@ -565,9 +580,14 @@ Config lives at `~/.freeaiagent/config.json` and is created on first run.
                    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                    "api_prefix": "", "api_key": ""}
   },
+  "ensemble": {"enabled": false, "models": [], "judge": null, "strategy": "llm_judge"},
   "fallback_order": ["llamafile", "ollama", "groq"]
 }
 ```
+
+Each backend may also set its own `max_messages` (overriding the global one),
+e.g. a short window for an 8k model and a long one for a 128k model. See
+**[Context strategies & ensemble](#context-strategies--ensemble)**.
 
 Cloud presets are inert until you set their `api_key`. `default_model` for the
 local backend is a catalog name (`freeaiagent models --available`); legacy
@@ -585,6 +605,63 @@ freeaiagent config set default_model llama-3.1-8b-instant
 
 ---
 
+## Context strategies & ensemble
+
+### Context window
+
+By default the agent uses a **sliding window**: only the last `max_messages`
+messages are sent to the model (`0` = unlimited). The effective window resolves
+in order: **per-call `max_messages`** (on `/chat`) → **`backends.<name>.max_messages`** →
+**global `max_messages`**.
+
+```bash
+freeaiagent config set max_messages 20                     # global window
+freeaiagent config set backends.groq.max_messages 100      # per-backend override
+# or per request:
+curl -X POST http://localhost:7731/chat -H "Content-Type: application/json" \
+  -d '{"message": "hi", "max_messages": 10}'
+```
+
+### Summarization
+
+Instead of dropping old messages, **summarize** them: once a session grows past
+`summarize_threshold`, the oldest `summarize_batch` messages are folded into a
+single system "memory" block — so long sessions keep their early context
+(decisions, constraints, names) at the cost of one extra LLM call per fold.
+
+```bash
+freeaiagent config set context_strategy summarize
+freeaiagent config set summarize_threshold 40    # start summarizing past 40 messages
+freeaiagent config set summarize_batch 30        # fold the oldest 30 into one summary
+freeaiagent config set summarize_model llama-3.2-3b   # optional; defaults to the chat model
+```
+
+### Ensemble inference
+
+Send the same prompt to **several models in parallel** and return the best
+answer — catches per-model blind spots for high-stakes one-shot questions (costs
+N× tokens, ~max-of-N latency). All ensemble models run on the active backend, so
+they must be models it can serve.
+
+```bash
+# Per request — pass an explicit model list:
+curl -X POST http://localhost:7731/chat -H "Content-Type: application/json" \
+  -d '{"message": "explain X", "ensemble": ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]}'
+
+# Or configure it once, then send "ensemble": true (or set enabled):
+freeaiagent config set ensemble.models '["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]'
+freeaiagent config set ensemble.strategy llm_judge    # llm_judge | longest | majority
+freeaiagent config set ensemble.enabled true
+```
+
+The response includes an `ensemble_votes` array (each model's answer, or its
+error) alongside the winning `response`. Judge strategies: **`llm_judge`** (a
+small model picks the best; falls back to `longest` on failure), **`longest`**
+(longest answer, penalised for repetition), **`majority`** (most common answer).
+Failed models are dropped; only an all-failed ensemble errors.
+
+---
+
 ## Backend reference
 
 ### Local (llamafile) — default
@@ -596,6 +673,22 @@ GGUF/engine models, and HuggingFace search.
 freeaiagent pull          # download the default local model
 freeaiagent start
 ```
+
+### In-process (llama-cpp-python) — optional
+Loads a GGUF model **directly into the Python process** — no llamafile
+subprocess, no local HTTP hop. Useful if you want a pure-Python path or finer
+control over `n_ctx` / GPU offload. Reuses the same GGUF weights `freeaiagent
+pull` downloads.
+
+```bash
+pip install "freeaiagent[llama-cpp]"     # optional extra (compiles llama-cpp-python)
+freeaiagent pull qwen2.5-7b              # any GGUF (engine-mode) catalog model
+freeaiagent config set default_backend llama_cpp
+freeaiagent config set backends.llama_cpp.n_gpu_layers 35   # offload to GPU (0 = CPU only)
+```
+
+Inert until both the package and a GGUF model are present, so it never interferes
+with the default setup.
 
 ### Ollama
 Runs locally. No API key. No data leaves your machine.
@@ -784,7 +877,8 @@ curl -X DELETE "http://localhost:7731/sessions/work"  # also deletes session rec
 - Zero-install local backend (llamafile) with a model catalog, engine mode for 7B–14B GGUF models, and HuggingFace search/pull
 - Ollama, Groq, and OpenAI-compatible cloud presets (Gemini, OpenRouter, Together, Cerebras; plus LM Studio, Jan, LocalAI)
 - Per-call model and backend overrides
-- Sliding window context (`max_messages` config) + session-based context windows
+- Sliding window context (`max_messages`) + per-backend & per-call context windows
+- Summarization context strategy (fold old messages into a memory block)
 - Auto caller detection (`X-Caller-ID` header → per-app session)
 - Streaming responses (`/chat/stream` SSE)
 - Tool use / function calling (`/tools`, `tools=true`)
@@ -793,11 +887,13 @@ curl -X DELETE "http://localhost:7731/sessions/work"  # also deletes session rec
 - Server-side streaming downloads (`/pull/stream`), model/config management endpoints
 - OpenAI-compatible `/v1/chat/completions` + `/v1/models` proxy
 - Auto-start service install (`freeaiagent install`) on Linux/macOS/Windows
-
-**Planned**
 - Ensemble inference (fan out the same query to multiple models, pick the best output)
 - Optional in-process engine (`llama-cpp-python`)
-- Download checksums, custom catalog entries, `freeaiagent rm`
+- Resumable downloads + SHA256 checksum verification, `freeaiagent rm`
+
+**Planned**
+- Custom catalog entries
+- RAG context strategy (semantic retrieval over history)
 - PyPI release automation
 
 ---
