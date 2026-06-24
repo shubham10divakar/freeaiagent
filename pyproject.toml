@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "freeaiagent"
-version = "1.2.0"
+version = "1.3.0"
 description = "Free local AI agent: zero-setup local LLM (llamafile/GGUF), Groq, Gemini, Ollama — HTTP API, sessions, streaming, tool use"
 readme = "README.md"
 license = "MIT"
