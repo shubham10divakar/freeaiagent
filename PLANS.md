@@ -24,7 +24,20 @@
 | 5 | OpenAI-compatible `/v1/chat/completions` proxy endpoint | **Done** |
 | 5 | System service install (`freeaiagent install` / `freeaiagent uninstall`) | **Done** |
 | 5 | PyPI publish (v1.2.0) | Built — pending upload |
+| 6 | `freeaiagent rm` — delete installed models | **Done** |
+| 6 | Download integrity — resume + SHA256 verify | **Done** |
+| 6 | Per-backend context limits | **Done** |
+| 6 | Summarization context strategy | **Done** |
+| 6 | Ensemble inference (fan-out + judge) | **Done** |
+| 6 | In-process GGUF backend (`llama-cpp-python`) | **Done** |
+| 6 | PyPI publish (v1.3.0) | Built — pending upload |
+| 7 | Desktop app (Tauri/Electron + `/ui`) — public launch | Planned |
+| 7 | Web inference (WebLLM / WebGPU) | Planned |
+| 7 | Cloud layer (accounts, sync, premium boost) | Planned |
+| 7 | Mobile native (React Native + llama.rn) | Planned |
+| 8 | **ModelX-1.0 backend** — Engine X-1.0, compound vision+language cascade | Planned |
 
+> **v1.3.0** is built and on `main` but not yet uploaded to PyPI or tagged. 277 tests pass. Phases 1–6 complete.
 > **v1.2.0** is built and validated (`dist/`, `twine check` passed) but not yet
 > uploaded to PyPI or tagged. 210 tests pass. Phases 1–5 complete.
 
@@ -119,6 +132,74 @@ freeaiagent does orchestration, the engine does GPU batching.
 ### Monetization
 Free = fully local. **Premium** = cloud boost (bigger models) + encrypted sync +
 priority. Cloud cost is bounded to paying users, so the economics stay clean.
+
+---
+
+### Phase 7.1 — Desktop App (decided approach)
+
+**Decided:** `pip install freeaiagent` + `freeaiagent start --open` is the public launch path. No Tauri, no Electron, no signing, no sidecar. The browser is the window.
+
+```bash
+pip install freeaiagent
+freeaiagent start --open
+# → starts server on 127.0.0.1:7731
+# → opens http://127.0.0.1:7731/ui in the user's default browser automatically
+```
+
+The `/ui` already exists and works. `--open` is a one-line CLI addition. This is already a full "desktop app experience" for any user who has Python.
+
+#### Why this wins over a Tauri/Electron wrapper
+
+| | `--open` flag | Tauri wrapper |
+|---|---|---|
+| Effort | XS (one CLI flag) | M–L (Rust, PyInstaller, sidecar, CI) |
+| Code signing | Not needed | Required for SmartScreen / Gatekeeper |
+| User requirement | `pip install` | Download + run installer |
+| Target audience | Developers, power users | General consumers |
+| Shipping time | Days | Weeks (signing alone is 1–2 weeks) |
+| Signing problem | Doesn't exist | Hard — MOTW, SmartScreen, notarization |
+
+The Tauri wrapper only adds: dedicated app icon, no browser chrome, appears in taskbar as its own app. That's a polish layer, not a functional one. Ship `--open` first.
+
+#### Why there's no signing problem here
+
+Files built locally or installed via `pip` have no **Mark of the Web** (MOTW) — the NTFS tag Windows uses to flag "this came from the internet." SmartScreen only triggers on MOTW files. A `pip install` puts Python files and scripts on disk with no MOTW — no warning, no block.
+
+#### Implementation — `freeaiagent start --open`
+
+One addition to `cli.py`:
+
+```python
+import webbrowser
+
+@app.command()
+def start(open: bool = typer.Option(False, "--open", help="Open /ui in browser after start")):
+    # ... existing start logic ...
+    # after server is confirmed healthy:
+    if open:
+        webbrowser.open("http://127.0.0.1:7731/ui")
+```
+
+`webbrowser.open()` is stdlib — zero new dependencies. Works on Windows, Mac, Linux.
+
+#### What also needs doing (same security notes as before)
+
+- Bind `127.0.0.1` not `0.0.0.0` in `cli.py` — no LAN exposure
+- These are one-line changes, not blockers for shipping `--open`
+
+#### Tauri wrapper — deferred, not cancelled
+
+The Tauri/Electron wrapper design is fully documented above and remains valid for a future consumer push (Phase 7.3+) when the audience is no longer developers. At that point signing cost is justified and the audience expects a downloadable installer. Until then, `--open` covers the launch.
+
+#### User experience with `--open`
+
+```
+pip install freeaiagent       # one-time setup
+freeaiagent pull              # download a model (~2–4 GB, one time)
+freeaiagent start --open      # server starts, browser opens to /ui automatically
+```
+
+Browser opens to a full ChatGPT-style interface. Chat, switch sessions, pull models — all in the browser tab. Close the terminal → server stops. Reopen anytime with `freeaiagent start --open`.
 
 ---
 
@@ -428,6 +509,76 @@ Individual models have blind spots — a small fast model may hallucinate where 
 ### When it matters
 
 Best for high-stakes one-shot tasks (code generation, summarization, analysis) where getting the answer right matters more than speed. Less useful for back-and-forth chat where context continuity matters more than any single response.
+
+---
+
+### Context passing in ensemble
+
+Yes — context is fully passed. `ensemble.run()` receives `messages: List[dict]`, which is the full conversation history already loaded from SQLite (trimmed to the effective window by `context.as_llm_messages(max_messages=N)`). Every model in the fan-out receives the same `messages` list via `backend.chat(messages, model)`. No model in the ensemble sees a context-free prompt.
+
+---
+
+### Planned — ModelX-1.0 / Engine X-1.0 (Compound Multi-Modal Model)
+
+**Concept:** ModelX-1.0 is a single logical model backed by **Engine X-1.0**, which internally contains **two specialist sub-models** and routes between them automatically — the caller treats it as one model.
+
+```
+Engine X-1.0
+├── Sub-model A — Vision / OCR  (activates when image detected in input)
+└── Sub-model B — Language / Text  (always runs; receives final prompt)
+```
+
+**Flow when an image is present:**
+
+```
+user message: [image attachment] + "what does this say?"
+        │
+        ▼
+Engine X-1.0 detects image in message content
+        │
+        ├─► Sub-model A (OCR/vision): extract text from image
+        │         └── returns: extracted_text
+        │
+        └─► Sub-model B (LLM): receives full context messages
+                              + extracted_text injected as a system turn
+                              → produces final response
+```
+
+**Flow without an image (text-only):**
+
+```
+user message: "summarise what we discussed"
+        │
+        ▼
+Engine X-1.0 detects no image → skips Sub-model A entirely
+        │
+        └─► Sub-model B (LLM): receives full context messages as-is
+```
+
+**Context handling:** the existing sliding-window / summarization context is passed through unchanged. Sub-model A's extracted text is injected as an extra `{"role": "system", "content": "[Image text]: ..."}` message *before* Sub-model B's call, so it becomes part of the conversation that subsequent turns can reference.
+
+**Relation to ensemble:** this is a **cascade** rather than a fan-out. Ensemble fans the *same prompt* to *N models in parallel* and picks the best; ModelX-1.0 routes the prompt *through* two models *in sequence* where one conditionally pre-processes the input. The router will register it as a single named backend (`type: modelx`) — callers just specify `model: modelx-1.0`.
+
+**Planned config:**
+
+```json
+{
+  "backends": {
+    "modelx": {
+      "type": "modelx",
+      "engine": "X-1.0",
+      "vision_model": "sub-model-a",
+      "language_model": "sub-model-b"
+    }
+  }
+}
+```
+
+**Implementation notes (future):**
+- Add `ModelXBackend` in `freeaiagent/backends/modelx.py` implementing `BaseBackend`
+- Image detection: check `messages[-1]["content"]` for `image_url` / base64 content parts (OpenAI multimodal message format)
+- Extracted text injected as a system message, not replacing the user message, so the original image reference stays in history
+- Router registers `modelx` as a valid `btype` in `router._build_backends()`
 
 ---
 

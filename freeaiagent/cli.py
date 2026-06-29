@@ -108,19 +108,37 @@ def _agent_get(path: str, timeout: float = 10.0) -> dict:
 def start(
     port: Optional[int] = typer.Option(None, help="Port to listen on (default: 7731)"),
     reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes (dev mode)"),
+    open: bool = typer.Option(False, "--open", help="Open the Chat UI in your browser after the server starts."),
 ):
     """Start the freeaiagent server."""
+    import threading
+    import time
+    import webbrowser
     import uvicorn
     from . import server as server_mod
 
     cfg = load()
     p = port or cfg.get("port", 7731)
+    ui_url = f"http://localhost:{p}/ui"
     typer.echo(f"freeaiagent running at http://localhost:{p}")
-    typer.echo(f"Chat UI:            http://localhost:{p}/ui")
+    typer.echo(f"Chat UI:            {ui_url}")
     typer.echo(f"API docs:           http://localhost:{p}/docs")
     typer.echo(f"Backend / model:    {cfg.get('default_backend')} / {cfg.get('default_model')}")
     typer.echo(f"Try it:             freeaiagent chat \"hello\"")
     typer.echo("")
+
+    if open:
+        def _open_when_ready():
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                try:
+                    httpx.get(f"http://localhost:{p}/health", timeout=1.0)
+                    webbrowser.open(ui_url)
+                    return
+                except Exception:
+                    time.sleep(0.5)
+        threading.Thread(target=_open_when_ready, daemon=True).start()
+
     # Publish the port so SDK clients can auto-discover us; clean up on exit.
     server_mod.write_lock(p)
     try:

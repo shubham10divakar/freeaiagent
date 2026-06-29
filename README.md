@@ -86,8 +86,8 @@ pip install freeaiagent
 Requires Python 3.10+. That's everything — local models and all cloud presets work with no extra packages. (For the optional in-process backend: `pip install "freeaiagent[llama-cpp]"`.) Then either pull a local model or add a free key (below).
 
 ```bash
-freeaiagent pull     # one-time local model download (~2.3 GB), then fully offline
-freeaiagent start
+freeaiagent pull          # one-time local model download (~2.3 GB), then fully offline
+freeaiagent start --open  # starts the server and opens the Chat UI in your browser
 ```
 
 ---
@@ -100,8 +100,8 @@ No budget needed. Every option below is free.
 A self-contained model the agent downloads and runs for you. No Ollama, no service.
 
 ```bash
-freeaiagent pull       # one-time ~2.3 GB download (Llama-3.2-3B), with a progress bar
-freeaiagent start      # auto-starts the model on first request
+freeaiagent pull            # one-time ~2.3 GB download (Llama-3.2-3B), with a progress bar
+freeaiagent start --open    # starts the server and opens the Chat UI in your browser
 ```
 
 Pick a different size or browse the catalog:
