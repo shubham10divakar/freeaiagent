@@ -36,7 +36,7 @@
 | 7 | Cloud layer (accounts, sync, premium boost) | Planned |
 | 7 | Mobile native (React Native + llama.rn) | Planned |
 | 8 | **ModelX-1.0 backend** — Engine X-1.0, compound vision+language cascade | Superseded by Phase 9 |
-| 9 | **SDX Engine** — Smart Decision eXecution; 5-tier compound text+vision engine (Nano→Max); standalone `freeaiagent/sdx/` module; transparent image handling | Planned |
+| 9 | **SDX Engine** — Smart Decision eXecution; 5-tier compound text+vision engine (Nano→Max); standalone `freeaiagent/sdx/` module; transparent image handling | **Done** |
 
 > **v1.3.0** is built and on `main` but not yet uploaded to PyPI or tagged. 277 tests pass. Phases 1–6 complete.
 > **v1.2.0** is built and validated (`dist/`, `twine check` passed) but not yet
