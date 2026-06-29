@@ -30,6 +30,7 @@ async def models_catalog():
     Lets the SDK render a downloadable-models picker without knowing where
     ``~/.freeaiagent/`` lives or how installed-ness is determined.
     """
+    from ..sdx.catalog import SDX_CATALOG, is_installed as sdx_is_installed
     port = load_config().get("backends", {}).get("llamafile", {}).get("port", 8080)
     out = []
     for name, e in catalog.all_entries():
@@ -43,6 +44,17 @@ async def models_catalog():
             "tier": e["tier"],
             "description": e["description"],
             "installed": backend._installed(),
+        })
+    for name, e in SDX_CATALOG.items():
+        out.append({
+            "name": name,
+            "display": e["display"],
+            "kind": "sdx",
+            "size_gb": e["size_gb"],
+            "min_ram_gb": e["min_ram_gb"],
+            "tier": e["tier"],
+            "description": e["description"],
+            "installed": sdx_is_installed(name),
         })
     return {"models": out}
 
@@ -98,8 +110,9 @@ async def pull_stream(req: PullRequest):
     q: "queue.Queue" = queue.Queue()
     _SENTINEL = object()
 
+    labels = pt.phase_labels if pt.phase_labels else {"engine": "llamafile engine", "model": pt.label}
     emitter = pull_mod.ProgressEmitter(
-        labels={"engine": "llamafile engine", "model": pt.label},
+        labels=labels,
         emit=q.put,
     )
 

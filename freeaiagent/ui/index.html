@@ -162,23 +162,83 @@
     .loading .bubble::after { content: '▍'; animation: blink 0.9s step-end infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
+    /* ── Image thumbnail in user bubbles ────────────────── */
+    .bubble-img {
+      max-width: 220px;
+      max-height: 160px;
+      border-radius: 8px;
+      display: block;
+      margin-bottom: 6px;
+      object-fit: cover;
+    }
+
     /* ── Input ───────────────────────────────────────────── */
     #input-area { padding: 12px 24px 20px; flex-shrink: 0; }
+    #input-inner { max-width: 740px; margin: 0 auto; }
+
+    /* Image preview strip above the input box */
+    #img-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 4px;
+    }
+    #img-preview img {
+      height: 52px;
+      width: 52px;
+      object-fit: cover;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+    }
+    #img-preview-label {
+      font-size: 12px;
+      color: var(--dim);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #img-remove {
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 17px;
+      line-height: 1;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: color 0.12s;
+    }
+    #img-remove:hover { color: var(--danger); }
+
     #input-wrap {
-      max-width: 740px; margin: 0 auto;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
       display: flex; align-items: flex-end; gap: 8px;
-      padding: 8px 10px 8px 14px;
+      padding: 8px 10px 8px 10px;
       transition: border-color 0.15s;
     }
     #input-wrap:focus-within { border-color: #444; }
+    #attach-btn {
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      transition: color 0.12s, background 0.12s;
+      display: flex;
+      align-items: center;
+    }
+    #attach-btn:hover { color: var(--text); background: var(--border); }
     #msg-input {
       flex: 1;
       background: transparent; border: none;
       color: var(--text); font-size: 14px; font-family: inherit;
       resize: none; max-height: 180px; line-height: 1.5; outline: none;
+      padding-left: 4px;
     }
     #msg-input::placeholder { color: var(--dim); }
     #send-btn {
@@ -198,6 +258,9 @@
 </head>
 <body>
 
+<!-- Hidden file input for image attachment -->
+<input type="file" id="img-file" accept="image/*" style="display:none">
+
 <div id="sidebar">
   <button id="new-chat">＋ New Chat</button>
   <div id="session-list"></div>
@@ -216,13 +279,25 @@
     </div>
   </div>
   <div id="input-area">
-    <div id="input-wrap">
-      <textarea id="msg-input" rows="1" placeholder="Message…"></textarea>
-      <button id="send-btn" disabled>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-        </svg>
-      </button>
+    <div id="input-inner">
+      <div id="img-preview" hidden>
+        <img id="img-preview-thumb" src="" alt="preview">
+        <span id="img-preview-label">image attached</span>
+        <button id="img-remove" title="Remove image">×</button>
+      </div>
+      <div id="input-wrap">
+        <button id="attach-btn" title="Attach image (SDX backends)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </button>
+        <textarea id="msg-input" rows="1" placeholder="Message…"></textarea>
+        <button id="send-btn" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -231,6 +306,8 @@
 'use strict';
 let activeSession = null;
 let sessions = [];
+let pendingImageB64 = null;   // base64 data-URI of attached image, or null
+let pendingImageName = '';
 
 // ── Utils ─────────────────────────────────────────────────
 
@@ -250,6 +327,38 @@ async function api(method, path, body) {
   }
   return r.json();
 }
+
+// ── Image attachment ──────────────────────────────────────
+
+document.getElementById('attach-btn').onclick = () => {
+  document.getElementById('img-file').click();
+};
+
+document.getElementById('img-file').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    pendingImageB64 = e.target.result;   // data:image/...;base64,...
+    pendingImageName = file.name;
+    document.getElementById('img-preview-thumb').src = pendingImageB64;
+    document.getElementById('img-preview-label').textContent = file.name;
+    document.getElementById('img-preview').hidden = false;
+    // enable send if there's also text, or just image alone
+    document.getElementById('send-btn').disabled = false;
+  };
+  reader.readAsDataURL(file);
+  this.value = '';  // allow re-selecting same file
+});
+
+document.getElementById('img-remove').onclick = () => {
+  pendingImageB64 = null;
+  pendingImageName = '';
+  document.getElementById('img-preview').hidden = true;
+  document.getElementById('img-preview-thumb').src = '';
+  const input = document.getElementById('msg-input');
+  document.getElementById('send-btn').disabled = !input.value.trim();
+};
 
 // ── Models ────────────────────────────────────────────────
 
@@ -359,7 +468,9 @@ async function switchSession(id) {
   try {
     const { messages } = await api('GET', `/context?session=${encodeURIComponent(id)}`);
     if (!messages.length) { showEmpty(); return; }
-    messages.forEach(m => appendBubble(m.role, m.content));
+    messages.forEach(m => {
+      if (m.role !== 'system') appendBubble(m.role, m.content);
+    });
     msgs.scrollTop = msgs.scrollHeight;
     // Restore session model
     const s = sessions.find(s => s.id === id);
@@ -387,7 +498,7 @@ function clearChat() {
   document.getElementById('topbar-title').textContent = 'freeaiagent';
 }
 
-function appendBubble(role, content, loading = false) {
+function appendBubble(role, content, loading = false, imageB64 = null) {
   document.getElementById('empty-state')?.remove();
   const msgs = document.getElementById('messages');
   const wrap = document.createElement('div');
@@ -399,7 +510,19 @@ function appendBubble(role, content, loading = false) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  if (!loading) bubble.textContent = content;
+
+  if (imageB64) {
+    const img = document.createElement('img');
+    img.className = 'bubble-img';
+    img.src = imageB64;
+    img.alt = 'attached image';
+    bubble.appendChild(img);
+  }
+
+  if (!loading && content) {
+    const txt = document.createTextNode(content);
+    bubble.appendChild(txt);
+  }
 
   wrap.appendChild(av);
   wrap.appendChild(bubble);
@@ -408,38 +531,97 @@ function appendBubble(role, content, loading = false) {
   return { el: wrap, bubble };
 }
 
+// ── Streaming chat ────────────────────────────────────────
+
+async function streamChat(text, imageB64) {
+  const model = document.getElementById('model-select').value;
+  const payload = {
+    message: text,
+    session_id: activeSession,
+    model: model || undefined,
+  };
+  if (imageB64) payload.image = imageB64;
+
+  const resp = await fetch('/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(txt || resp.statusText);
+  }
+
+  return resp.body.getReader();
+}
+
 async function sendMessage() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
-  if (!text) return;
+  const imgB64 = pendingImageB64;
+
+  if (!text && !imgB64) return;
 
   if (!activeSession) activeSession = uuid();
 
-  const model = document.getElementById('model-select').value;
   input.value = '';
   autoResize();
   document.getElementById('send-btn').disabled = true;
 
-  appendBubble('user', text);
+  // Clear image preview
+  pendingImageB64 = null;
+  pendingImageName = '';
+  document.getElementById('img-preview').hidden = true;
+  document.getElementById('img-preview-thumb').src = '';
+
+  appendBubble('user', text || '', false, imgB64);
   const { el: loadEl, bubble: loadBubble } = appendBubble('assistant', '', true);
 
   try {
-    const data = await api('POST', '/chat', {
-      message: text,
-      session_id: activeSession,
-      model: model || undefined,
-    });
-    loadEl.classList.remove('loading');
-    loadBubble.textContent = data.response;
-    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
-    await loadSessions();  // refresh sidebar (title, last_updated)
+    const reader = await streamChat(text || '', imgB64);
+    const decoder = new TextDecoder();
+    let buf = '';
+    let accumulated = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();  // keep incomplete line
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') break;
+        let ev;
+        try { ev = JSON.parse(raw); } catch { continue; }
+
+        if (ev.analyzing) {
+          loadBubble.textContent = ev.message || 'Analyzing image…';
+        } else if (ev.token) {
+          if (loadEl.classList.contains('loading')) {
+            loadEl.classList.remove('loading');
+            loadBubble.textContent = '';
+          }
+          accumulated += ev.token;
+          loadBubble.textContent = accumulated;
+          document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+        } else if (ev.error) {
+          throw new Error(ev.error);
+        }
+      }
+    }
+    await loadSessions();
   } catch (e) {
     loadEl.classList.remove('loading');
-    loadBubble.textContent = '⚠ ' + e.message;
+    loadBubble.textContent = '';
+    const errNode = document.createTextNode('⚠ ' + e.message);
+    loadBubble.appendChild(errNode);
     loadBubble.style.color = 'var(--danger)';
   }
 
-  document.getElementById('send-btn').disabled = !input.value.trim();
+  document.getElementById('send-btn').disabled = !input.value.trim() && !pendingImageB64;
   input.focus();
 }
 
@@ -461,7 +643,7 @@ document.getElementById('new-chat').onclick = () => {
 
 document.getElementById('msg-input').addEventListener('input', function() {
   autoResize();
-  document.getElementById('send-btn').disabled = !this.value.trim();
+  document.getElementById('send-btn').disabled = !this.value.trim() && !pendingImageB64;
 });
 
 document.getElementById('msg-input').addEventListener('keydown', e => {

@@ -12,12 +12,14 @@ class BaseBackend(ABC):
     @abstractmethod
     async def is_available(self) -> bool: ...
 
-    async def stream(self, messages: List[Dict], model: str) -> AsyncIterator[str]:
+    async def stream(self, messages: List[Dict], model: str, **kwargs) -> AsyncIterator[str]:
         """Yield response text in chunks.
 
         Default implementation falls back to a single non-streamed chunk, so a
         backend without native streaming still works through the streaming API.
         Backends that support token streaming override this.
+        ``**kwargs`` is accepted but ignored by the default; SDXBackend uses
+        it to receive ``image_path`` from the endpoint.
         """
         yield await self.chat(messages, model)
 

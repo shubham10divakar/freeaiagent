@@ -21,9 +21,11 @@ def temp_model_dirs(tmp_path, monkeypatch):
 
 @pytest.mark.integration
 def test_models_catalog_lists_all_uninstalled(client, temp_model_dirs):
+    from freeaiagent.sdx.catalog import SDX_CATALOG
     data = client.get("/models/catalog").json()
     names = [m["name"] for m in data["models"]]
-    assert names == catalog.names()
+    expected = catalog.names() + list(SDX_CATALOG)
+    assert names == expected
     assert all(m["installed"] is False for m in data["models"])
     one = data["models"][0]
     assert {"display", "kind", "size_gb", "min_ram_gb", "tier", "description"} <= set(one)

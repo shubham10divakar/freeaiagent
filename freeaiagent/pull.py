@@ -7,8 +7,8 @@ identically. ``ProgressEmitter`` shapes the backend's raw per-chunk callback
 into the SSE event dicts the endpoint and SDK consume.
 """
 import time
-from dataclasses import dataclass
-from typing import Callable, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
 
 from . import catalog
 from .backends.llamafile import LlamafileBackend
@@ -18,18 +18,19 @@ _MB = 1024 * 1024
 
 @dataclass
 class PullTarget:
-    backend: LlamafileBackend
+    backend: Any  # LlamafileBackend or SDXDownloadHelper — must have download(force, on_chunk)
     label: str
     size_gb: Optional[float]
     min_ram_gb: Optional[int]
     is_catalog_name: bool
+    phase_labels: Optional[dict] = field(default=None)  # non-None → multi-phase SDX download
 
 
 def resolve_target(target: str, port: int = 8080) -> PullTarget:
     """Resolve a model spec to a backend plus display metadata.
 
-    ``target`` is a catalog name (e.g. ``llama-3.2-3b``), an
-    ``hf:<repo>/<file.gguf>`` ref, or a direct ``http(s)`` URL. Raises
+    ``target`` is a catalog name (e.g. ``llama-3.2-3b`` or ``sdx-standard``),
+    an ``hf:<repo>/<file.gguf>`` ref, or a direct ``http(s)`` URL. Raises
     ``ValueError`` for a malformed hf ref or an unknown catalog name.
     """
     if target.startswith("hf:"):
@@ -45,17 +46,34 @@ def resolve_target(target: str, port: int = 8080) -> PullTarget:
         backend = LlamafileBackend(port=port, download_url=target)
         return PullTarget(backend, target.rsplit("/", 1)[-1], None, None, is_catalog_name=False)
 
+    # Check regular catalog first
     entry = catalog.get(target)
-    if entry is None:
-        raise ValueError(
-            f"Unknown model '{target}'.\n"
-            f"See available models with: freeaiagent models --available\n"
-            f"Or pass a direct llamafile/GGUF URL."
+    if entry is not None:
+        backend = LlamafileBackend(port=port, model=target)
+        return PullTarget(
+            backend, entry["display"], entry["size_gb"], entry["min_ram_gb"],
+            is_catalog_name=True,
         )
-    backend = LlamafileBackend(port=port, model=target)
-    return PullTarget(
-        backend, entry["display"], entry["size_gb"], entry["min_ram_gb"],
-        is_catalog_name=True,
+
+    # Check SDX catalog
+    from .sdx.catalog import SDX_CATALOG
+    from .sdx.downloader import SDXDownloadHelper, _sdx_phase_labels
+    sdx_entry = SDX_CATALOG.get(target)
+    if sdx_entry is not None:
+        helper = SDXDownloadHelper(target, sdx_entry)
+        return PullTarget(
+            helper,
+            sdx_entry["display"],
+            sdx_entry["size_gb"],
+            sdx_entry["min_ram_gb"],
+            is_catalog_name=True,
+            phase_labels=_sdx_phase_labels(sdx_entry),
+        )
+
+    raise ValueError(
+        f"Unknown model '{target}'.\n"
+        f"See available models with: freeaiagent models --available\n"
+        f"Or pass a direct llamafile/GGUF URL."
     )
 
 

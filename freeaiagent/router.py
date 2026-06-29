@@ -7,6 +7,7 @@ from . import catalog
 from .backends.ollama import OllamaBackend
 from .backends.groq import GroqBackend
 from .backends.openai_compat import OpenAICompatibleBackend
+from .backends.sdx_backend import SDXBackend
 
 
 def _build_backends(config: dict) -> dict[str, BaseBackend]:
@@ -46,6 +47,8 @@ def _build_backends(config: dict) -> dict[str, BaseBackend]:
                     model_list=bcfg.get("models", []),
                     api_prefix=bcfg.get("api_prefix", "/v1"),
                 )
+        elif btype == "sdx":
+            backends[name] = SDXBackend(bcfg)
 
     return backends
 

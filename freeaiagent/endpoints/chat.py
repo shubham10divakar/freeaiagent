@@ -1,4 +1,7 @@
+import base64
 import json
+import os
+import tempfile
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -42,6 +45,51 @@ class ChatRequest(BaseModel):
     # Ensemble: true = use config models; a list = use those models; null = off
     # (unless config ensemble.enabled). Needs >= 2 models or it's a normal chat.
     ensemble: Optional[Union[bool, List[str]]] = None
+    # Image for SDX vision backends. Raw base64 or a data-URI (data:image/...;base64,...).
+    image: Optional[str] = None
+
+
+def _decode_image_to_tempfile(b64: str) -> str:
+    """Decode a base64 or data-URI image to a temp file; return the file path."""
+    if b64.startswith("data:"):
+        # data:image/jpeg;base64,/9j/...
+        header, data = b64.split(",", 1)
+        ext = header.split(";")[0].split("/")[-1] or "jpg"
+        raw = base64.b64decode(data)
+    else:
+        ext = "jpg"
+        raw = base64.b64decode(b64)
+    fd, path = tempfile.mkstemp(suffix=f".{ext}", prefix="sdx_img_")
+    try:
+        os.write(fd, raw)
+    finally:
+        os.close(fd)
+    return path
+
+
+async def _extract_sdx_vision(
+    backend, model: str, image_b64: str, user_text: str, session_id: str
+) -> tuple[list[dict] | None, str | None]:
+    """Extract image description with SDX vision sub-model.
+
+    Returns ``(injection_messages, description)`` where injection_messages is
+    the ``[SDX-Image]`` system message to insert into the messages list, and
+    description is what gets persisted to SQLite. Returns ``(None, None)`` if
+    the backend does not support vision.
+    """
+    if not image_b64 or not hasattr(backend, "extract_vision"):
+        return None, None
+    path = _decode_image_to_tempfile(image_b64)
+    try:
+        description = await backend.extract_vision(path, user_text, model=model)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    context.append("system", f"[SDX-Image]: {description}", session_id=session_id)
+    inject = {"role": "system", "content": f"[SDX-Image]: {description}"}
+    return inject, description
 
 
 @api.post("/chat")
@@ -68,6 +116,13 @@ async def chat(req: ChatRequest, request: Request):
     await _apply_context_strategy(backend, model, session_id)
     messages = _build_messages(req, session_id, max_messages)
     context.append("user", req.message, session_id=session_id)
+
+    # SDX vision: extract description before calling the text model.
+    # The description is persisted to SQLite here (before the assistant message)
+    # so future context reconstructions include it in the right order.
+    inject, _desc = await _extract_sdx_vision(backend, model, req.image, req.message, session_id)
+    if inject is not None:
+        messages = messages[:-1] + [inject, messages[-1]]
 
     cfg = load_config()
     ensemble_models = ensemble.resolve_models(req.ensemble, cfg)
@@ -129,8 +184,19 @@ async def chat_stream(req: ChatRequest, request: Request):
     context.append("user", req.message, session_id=session_id)
 
     async def event_stream():
+        nonlocal messages
         parts: list[str] = []
         try:
+            # SDX vision: emit an "analyzing" event, extract the description,
+            # persist it, then stream text-model tokens as normal.
+            if req.image and hasattr(backend, "extract_vision"):
+                yield f"data: {json.dumps({'analyzing': True, 'message': 'Analyzing image...'})}\n\n"
+                inject, _desc = await _extract_sdx_vision(
+                    backend, model, req.image, req.message, session_id
+                )
+                if inject is not None:
+                    messages = messages[:-1] + [inject, messages[-1]]
+
             async for token in backend.stream(messages, model):
                 parts.append(token)
                 yield f"data: {json.dumps({'token': token})}\n\n"

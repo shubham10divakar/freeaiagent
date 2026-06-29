@@ -44,6 +44,9 @@ DEFAULTS: dict = {
                        "api_prefix": "", "api_key": ""},
         # Any other OpenAI-compatible server (LM Studio, LocalAI, etc.)
         # "lmstudio":  {"type": "openai_compat", "base_url": "http://localhost:1234"},
+        # SDX compound engine: text+vision in one bundle. Use after `freeaiagent pull sdx-standard`.
+        # Set model to any sdx-* catalog id: sdx-nano, sdx-mini, sdx-standard, sdx-plus, sdx-max
+        "sdx": {"type": "sdx", "model": "sdx-standard", "n_gpu_layers": 0, "auto_unload_vision": False},
     },
     "fallback_order": ["llamafile", "ollama", "groq"],
     # Ensemble inference: fan a prompt out to several models and judge the best.
