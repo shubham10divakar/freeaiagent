@@ -35,7 +35,8 @@
 | 7 | Web inference (WebLLM / WebGPU) | Planned |
 | 7 | Cloud layer (accounts, sync, premium boost) | Planned |
 | 7 | Mobile native (React Native + llama.rn) | Planned |
-| 8 | **ModelX-1.0 backend** — Engine X-1.0, compound vision+language cascade | Planned |
+| 8 | **ModelX-1.0 backend** — Engine X-1.0, compound vision+language cascade | Superseded by Phase 9 |
+| 9 | **SDX Engine** — Smart Decision eXecution; 5-tier compound text+vision engine (Nano→Max); standalone `freeaiagent/sdx/` module; transparent image handling | Planned |
 
 > **v1.3.0** is built and on `main` but not yet uploaded to PyPI or tagged. 277 tests pass. Phases 1–6 complete.
 > **v1.2.0** is built and validated (`dist/`, `twine check` passed) but not yet
@@ -958,6 +959,68 @@ def summarize(text: str) -> str:
 def download_model(name: str, on_progress):
     for p in agent.pull(name):
         on_progress(p)   # Magpie UI renders a real progress bar
+```
+
+---
+
+---
+
+## Phase 9 — SDX Engine (Smart Decision eXecution)
+
+Full design: [`docs/sdx-engine.md`](docs/sdx-engine.md)
+
+**What it is:** A compound inference engine that presents one logical "model" to the caller while internally routing between a text sub-model and a vision sub-model based on whether the user attaches an image. The orchestration is invisible — the user downloads one bundle, chats, and attaches images freely.
+
+**Why now (after Phase 8 is superseded):** The original Phase 8 ModelX sketch is a correct concept but underspecified. SDX is the full design: standalone codebase, 5 tiers, explicit context budget management, clear integration points, and a detailed build order.
+
+### SDX model tiers
+
+| ID | Display | Text | Vision | Bundle | Min RAM |
+|---|---|---|---|---|---|
+| `sdx-nano` | SDX Nano | Qwen2.5-0.5B Q4_K_M | moondream2 Q4 | ~2.1 GB | 4 GB |
+| `sdx-mini` | SDX Mini | Llama-3.2-1B Q4_K_M | moondream2 Q4 | ~2.5 GB | 4 GB |
+| `sdx-standard` | SDX Standard | Llama-3.2-3B Q4_K_M | llava-phi-3-mini Q4 + mmproj | ~4.7 GB | 8 GB |
+| `sdx-plus` | SDX Plus | Qwen2.5-7B Q4_K_M | llava-v1.6-mistral-7b Q4 + mmproj | ~9.4 GB | 16 GB |
+| `sdx-max` | SDX Max | Qwen2.5-14B Q4_K_M | llava-v1.6-mistral-7b Q4 + mmproj | ~13.4 GB | 24 GB |
+
+### Key design decisions (locked)
+
+- **Fully standalone codebase** in `freeaiagent/sdx/` — zero imports from the rest of the package except stdlib and `llama_cpp`
+- **llama-cpp-python** for both sub-models (reuses the existing `llama_cpp` backend infrastructure): `MoondreamChatHandler` for moondream2 tiers, `Llava16ChatHandler` for LLaVA tiers
+- **Images become text permanently** — vision model extracts a description; description stored in SQLite as `[SDX-Image]: <desc>` system message; raw image never persisted long-term
+- **Stateless-per-call reconstruction** — ContextBuilder is rebuilt from the SQLite `messages` list on every `/chat` call; no per-session engine state cached between calls
+- **Token budget per tier** (4k → 32k) with drop logic: oldest complete turn pairs dropped when over budget; current turn and system prompt never dropped; minimum 2 pairs always kept
+- **One bundle, one download** — `freeaiagent pull sdx-standard` fetches text.gguf + vision.gguf + mmproj.gguf sequentially with phases `text_model` / `vision_model` / `mmproj` in SSE events
+- **Thin integration** — only 7 existing files touched: `catalog.py`, `config.py`, `router.py`, `endpoints/chat.py`, `pull.py`, `ui/index.html`; all SDX logic lives in `freeaiagent/sdx/`
+
+### What SDX does NOT do
+
+- No tool calling (text models too small in lower tiers)
+- No ensemble fan-out (separate concern)
+- No regenerate on vision turns
+- Does not apply the `summarize` context strategy (owns its own budget/drop logic)
+
+### Build order (16 steps)
+
+Steps 1–6 are pure SDX module (no package coupling; fully unit-testable in isolation):
+
+```
+1.  freeaiagent/sdx/types.py
+2.  freeaiagent/sdx/context_builder.py
+3.  freeaiagent/sdx/vision_runner.py
+4.  freeaiagent/sdx/text_runner.py
+5.  freeaiagent/sdx/engine.py
+6.  freeaiagent/sdx/__init__.py
+7.  freeaiagent/backends/sdx_backend.py
+8.  catalog.py          — add 5 SDX bundle entries
+9.  config.py           — add SDX config schema
+10. router.py           — type: "sdx" dispatch
+11. endpoints/chat.py   — image field + temp file lifecycle
+12. pull.py             — multi-file bundle download
+13. ui/index.html       — image attach, preview, thumbnail, SDX badge
+14. tests/test_sdx_context_builder.py
+15. tests/test_sdx_engine.py
+16. tests/test_sdx_api.py
 ```
 
 ---
